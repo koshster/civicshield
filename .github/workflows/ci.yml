@@ -38,4 +38,45 @@ jobs:
       - name: Tests (unit + integration)
         run: uv run pytest --cov --cov-report=term-missing
       - name: Dependency audit
-        run: uvx pip-audit --strict -r <(uv export --frozen --no-dev --no-hashes) || true
+        # Reported, but not blocking: a fresh CVE upstream shouldn't break unrelated PRs.
+        # Visible as a warning on the run; fix promptly.
+        continue-on-error: true
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project > requirements.txt
+          uvx pip-audit --strict -r requirements.txt
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Type-check and build
+        run: npm run build
+      - name: Dependency audit
+        continue-on-error: true
+        run: npm audit --omit=dev --audit-level=high
+
+  eval:
+    # Builds the isolated lab and scores the scanner against ground truth. Fails on any
+    # request to the out-of-scope host, a broken audit chain, or a precision/recall drop.
+    runs-on: ubuntu-latest
+    needs: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv sync --frozen
+      - name: Run lab evaluation
+        run: ./lab/run.sh
+      - name: Publish results
+        if: always()
+        run: cat eval/results/latest.md >> "$GITHUB_STEP_SUMMARY"
