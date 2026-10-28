@@ -20,7 +20,6 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY src/ src/
 COPY migrations/ migrations/
 COPY alembic.ini ./
-COPY remediation/ remediation/
 RUN uv sync --frozen --no-dev
 COPY --from=frontend /frontend/dist /app/frontend_dist
 

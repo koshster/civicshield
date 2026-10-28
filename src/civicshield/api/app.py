@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from fastapi import FastAPI
 
 from civicshield import __version__
 from civicshield.api.routes import auth, authorizations, domains, orgs, scans
+from civicshield.api.web import SecurityHeadersMiddleware, mount_spa
 from civicshield.config import get_settings
 from civicshield.log import configure_logging
 
@@ -28,5 +31,10 @@ def create_app() -> FastAPI:
 
     for router in (auth.router, orgs.router, domains.router, authorizations.router, scans.router):
         app.include_router(router, prefix="/api/v1")
+
+    app.add_middleware(SecurityHeadersMiddleware, hsts=settings.cookie_secure)
+    # Registered last: the catch-all route must not shadow the API routes above.
+    if settings.frontend_dist:
+        mount_spa(app, Path(settings.frontend_dist))
 
     return app

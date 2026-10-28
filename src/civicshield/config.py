@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     session_ttl_hours: int = 12
     cookie_secure: bool = True  # set False only for local http:// development
 
+    # Built React app (frontend/dist). When set, the API process also serves the SPA so
+    # the browser sees a single origin: no CORS, and the strict cookie/CSRF model holds.
+    frontend_dist: str | None = None
+
     # Scanner politeness and safety
     scanner_user_agent: str = (
         "CivicShield/0.1 (+https://github.com/koshikkumaravel/civicshield; authorized scan)"
