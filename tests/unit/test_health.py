@@ -1,10 +1,7 @@
-from fastapi.testclient import TestClient
-
-from civicshield.api.app import create_app
+import httpx
 
 
-def test_healthz() -> None:
-    client = TestClient(create_app())
-    resp = client.get("/api/healthz")
+async def test_healthz(client: httpx.AsyncClient) -> None:
+    resp = await client.get("/api/healthz")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"

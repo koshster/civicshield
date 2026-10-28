@@ -22,6 +22,7 @@ dependencies = [
     "structlog>=24.4",
     "pyyaml>=6.0",
     "typer>=0.13",
+    "email-validator>=2.2",
 ]
 
 [project.scripts]
