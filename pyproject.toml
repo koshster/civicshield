@@ -64,7 +64,7 @@ select = [
     "SIM", "RUF",
     "TID",           # banned imports (see below)
 ]
-ignore = ["RUF001", "RUF002", "RUF003"]  # allow unicode punctuation in docs/strings
+ignore = ["RUF001", "RUF002", "RUF003", "RUF005"]  # unicode punctuation; tuple concat style
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101", "S104", "S105", "S106", "S311", "S603", "S607"]  # asserts, fake secrets, subprocess OK in tests
