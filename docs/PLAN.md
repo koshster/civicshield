@@ -386,18 +386,18 @@ Key entities (all tenant tables carry `org_id`, which is also the RLS key):
 ### 2.6 Finding model
 
 ```python
-class Finding(BaseModel):          # what a check returns (pure data, no DB)
-    finding_type: str              # "tls.cert.expiring", "email.dmarc.policy_none", ...
-    title: str                     # short, technical
-    severity: Severity             # info | low | medium | high | critical
-    confidence: Confidence         # low | medium | high (+ numeric 0..1 internally)
+class Finding(BaseModel):  # what a check returns (pure data, no DB)
+    finding_type: str  # "tls.cert.expiring", "email.dmarc.policy_none", ...
+    title: str  # short, technical
+    severity: Severity  # info | low | medium | high | critical
+    confidence: Confidence  # low | medium | high (+ numeric 0..1 internally)
     asset: AssetRef
-    evidence: list[Evidence]       # typed: header snapshot, DNS answer, cert fields, URL+status…
-    remediation_key: str           # → curated remediation library entry + action grouping
-    discriminator: str = ""        # part of the stable fingerprint
-    references: list[Reference]    # CWE, CVE, RFC, vendor docs
-    facts: dict[str, str | int]    # normalized values the report layer may cite
-                                   # (days_to_expiry=12, dmarc_policy="none", plugin="akismet")
+    evidence: list[Evidence]  # typed: header snapshot, DNS answer, cert fields, URL+status…
+    remediation_key: str  # → curated remediation library entry + action grouping
+    discriminator: str = ""  # part of the stable fingerprint
+    references: list[Reference]  # CWE, CVE, RFC, vendor docs
+    facts: dict[str, str | int]  # normalized values the report layer may cite
+    # (days_to_expiry=12, dmarc_policy="none", plugin="akismet")
 ```
 
 `facts` matters for the LLM guardrails: it's the whitelist of values a report is allowed to mention.
@@ -406,29 +406,33 @@ class Finding(BaseModel):          # what a check returns (pure data, no DB)
 
 ```python
 class Impact(StrEnum):
-    PASSIVE = "passive"        # reads what any visitor/resolver sees
-    LOW = "low_impact"         # a few targeted GETs to known paths (exposure checks)
-    ACTIVE = "active"          # opt-in only; nothing in the MVP
+    PASSIVE = "passive"  # reads what any visitor/resolver sees
+    LOW = "low_impact"  # a few targeted GETs to known paths (exposure checks)
+    ACTIVE = "active"  # opt-in only; nothing in the MVP
+
 
 @dataclass(frozen=True)
 class CheckMeta:
-    id: str                    # "tls", "headers", "email"
-    version: str               # bump when logic changes → eval tracks regressions per version
+    id: str  # "tls", "headers", "email"
+    version: str  # bump when logic changes → eval tracks regressions per version
     category: Category
     impact: Impact
-    target_kind: TargetKind    # HOST (per web host) | ZONE (per apex domain, e.g. email)
+    target_kind: TargetKind  # HOST (per web host) | ZONE (per apex domain, e.g. email)
     finding_types: frozenset[str]  # declared upfront; eval verifies coverage
+
 
 class Check(Protocol):
     meta: ClassVar[CheckMeta]
+
     async def run(self, target: Target, ctx: CheckContext) -> list[Finding]: ...
 
-class CheckContext(Protocol):    # the ONLY way a check touches the outside world
-    http: ScopedHttpClient       # scope-checked, SSRF-guarded, rate-limited, audited
+
+class CheckContext(Protocol):  # the ONLY way a check touches the outside world
+    http: ScopedHttpClient  # scope-checked, SSRF-guarded, rate-limited, audited
     dns: ScopedResolver
-    tls: TLSProber               # raw ClientHello prober + cert fetcher, same guards
-    cache: ScanCache             # memoized fetches shared across checks (homepage fetched once)
-    clock: Clock                 # injectable → expiry logic is testable
+    tls: TLSProber  # raw ClientHello prober + cert fetcher, same guards
+    cache: ScanCache  # memoized fetches shared across checks (homepage fetched once)
+    clock: Clock  # injectable → expiry logic is testable
     log: BoundLogger
 ```
 

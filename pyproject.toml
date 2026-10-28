@@ -1,0 +1,109 @@
+[project]
+name = "civicshield"
+version = "0.1.0"
+description = "Permission-based security scanner and monitoring for small nonprofits"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.6",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30",
+    "psycopg[binary]>=3.2",       # sync driver: used by Alembic and Celery tasks
+    "alembic>=1.14",
+    "celery[redis]>=5.4",
+    "httpx>=0.28",
+    "dnspython>=2.7",
+    "cryptography>=43",
+    "argon2-cffi>=23.1",
+    "structlog>=24.4",
+    "pyyaml>=6.0",
+    "typer>=0.13",
+]
+
+[project.scripts]
+civicshield = "civicshield.cli:app"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "pytest-cov>=6.0",
+    "respx>=0.21",
+    "hypothesis>=6.118",
+    "ruff>=0.8",
+    "mypy>=1.13",
+    "types-pyyaml>=6.0",
+    "aiosqlite>=0.20",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/civicshield"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "F", "W",   # pycodestyle / pyflakes
+    "I",             # import sorting
+    "B",             # bugbear: likely bugs
+    "UP",            # pyupgrade: modern syntax
+    "S",             # bandit: security lint (fitting for a security tool)
+    "ASYNC",         # blocking calls inside async functions
+    "SIM", "RUF",
+    "TID",           # banned imports (see below)
+]
+ignore = ["RUF001", "RUF002", "RUF003"]  # allow unicode punctuation in docs/strings
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S311"]   # asserts and fake secrets are fine in tests
+"eval/**" = ["S101"]
+"migrations/**" = ["E501"]
+# The banned-API rule (TID251) is only meant for the checks package; everything else
+# (the network layer itself, the API, tests) legitimately imports httpx/ssl/socket.
+"!src/civicshield/engine/checks/**" = ["TID251"]
+
+# Checks must never open network connections directly. All I/O goes through the
+# CheckContext (ScopedHttpClient / ScopedResolver / TLSProber), which enforces scope,
+# SSRF protection, rate limits and auditing. Banning the raw libraries inside the
+# checks package turns that convention into a lint error. See docs/adr/0003.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"httpx".msg = "Checks must use ctx.http (ScopedHttpClient), not httpx directly."
+"socket".msg = "Checks must use ctx.tls / ctx.http, not raw sockets."
+"ssl".msg = "Checks must use ctx.tls, not the ssl module directly."
+"dns.resolver".msg = "Checks must use ctx.dns (ScopedResolver)."
+"dns.asyncresolver".msg = "Checks must use ctx.dns (ScopedResolver)."
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+packages = ["civicshield"]
+
+[[tool.mypy.overrides]]
+module = ["celery.*", "kombu.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "integration: needs a running PostgreSQL (CIVICSHIELD_TEST_DATABASE_URL)",
+]
+addopts = "-ra --strict-markers"
+
+[tool.coverage.run]
+source = ["src/civicshield"]
+branch = true
