@@ -64,7 +64,7 @@ async def test_failures_are_isolated_and_explicit() -> None:
         targets,
         make_ctx(),
         max_impact=Impact.PASSIVE,
-        timeout=0.05,
+        check_timeout=0.05,
     )
     by = {o.check.meta.id: o for o in outcomes}
     assert by["boom"].status is CheckRunStatus.ERROR
