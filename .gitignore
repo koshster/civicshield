@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+*.egg-info/
+
+# Env / secrets — never commit real secrets. .env.example is the template.
+.env
+*.env.local
+
+# Node
+node_modules/
+frontend/dist/
+
+# Lab: generated certs/keys are created by lab/ca/generate.sh
+lab/ca/out/
+lab/targets/**/certs/
+
+# Eval output (latest.md is committed deliberately; raw runs are not)
+eval/results/runs/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
