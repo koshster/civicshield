@@ -13,6 +13,7 @@ from civicshield.config import get_settings
 from civicshield.db.session import get_db
 from civicshield.engine.net.factory import NetFactory, build_net
 from civicshield.models import Organization, User, UserSession
+from civicshield.scanning import Enqueue
 
 DB = Annotated[AsyncSession, Depends(get_db)]
 
@@ -73,3 +74,13 @@ def get_net_factory() -> NetFactory:
 
 
 Net = Annotated[NetFactory, Depends(get_net_factory)]
+
+
+def get_enqueuer() -> Enqueue:
+    """How queued scans reach the worker. Tests override this to capture scan ids."""
+    from civicshield.worker.celery_app import enqueue_scan  # lazy: avoids Celery at import
+
+    return enqueue_scan
+
+
+Enqueuer = Annotated[Enqueue, Depends(get_enqueuer)]
