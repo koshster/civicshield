@@ -31,3 +31,4 @@ eval/results/runs/
 .idea/
 .vscode/
 .DS_Store
+*.tsbuildinfo
