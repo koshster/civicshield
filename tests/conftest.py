@@ -21,7 +21,13 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.pool import StaticPool
 
 import civicshield.models  # noqa: F401
+from civicshield.config import Settings
 from civicshield.db.base import Base
+
+# Tests must not depend on a developer's local .env (e.g. COOKIE_SECURE=false for
+# http://localhost would silently change auth behavior under test). Only real
+# environment variables and per-test monkeypatching apply.
+Settings.model_config["env_file"] = None
 
 TEST_DB_URL = os.environ.get("CIVICSHIELD_TEST_DATABASE_URL", "sqlite+aiosqlite:///:memory:")
 
