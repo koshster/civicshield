@@ -13,6 +13,7 @@ from typing import Annotated, Any
 
 from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
 
+from civicshield.authz.verification import VerificationInstructions
 from civicshield.enums import (
     CheckRunStatus,
     Confidence,
@@ -98,16 +99,6 @@ class DomainOut(ORM):
     verified_at: datetime | None
     last_checked_at: datetime | None
     last_check_error: str | None
-
-
-class VerificationInstructions(BaseModel):
-    method: VerificationMethod
-    summary: str
-    steps: list[str]
-    record_name: str | None = None
-    record_value: str | None = None
-    file_url: str | None = None
-    file_contents: str | None = None
 
 
 class DomainDetail(DomainOut):

@@ -9,7 +9,9 @@ from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from civicshield.auth.sessions import CSRF_HEADER, SESSION_COOKIE, csrf_matches, resolve_session
+from civicshield.config import get_settings
 from civicshield.db.session import get_db
+from civicshield.engine.net.factory import NetFactory, build_net
 from civicshield.models import Organization, User, UserSession
 
 DB = Annotated[AsyncSession, Depends(get_db)]
@@ -62,3 +64,12 @@ OrgAccess = Annotated[Organization, Depends(org_for_user)]
 
 def client_ip(request: Request) -> str | None:
     return request.client.host if request.client else None
+
+
+def get_net_factory() -> NetFactory:
+    """The network stack factory. Tests override this with fake DNS/HTTP."""
+    settings = get_settings()
+    return lambda scope: build_net(scope, settings)
+
+
+Net = Annotated[NetFactory, Depends(get_net_factory)]
