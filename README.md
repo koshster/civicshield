@@ -1,6 +1,6 @@
 # CivicShield
 
-[![CI](https://github.com/koshikkumaravel/civicshield/actions/workflows/ci.yml/badge.svg)](https://github.com/koshikkumaravel/civicshield/actions/workflows/ci.yml)
+[![CI](https://github.com/koshster/civicshield/actions/workflows/ci.yml/badge.svg)](https://github.com/koshster/civicshield/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **An open-source security scanner and monitor for small nonprofits, built so that it is

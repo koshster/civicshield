@@ -50,7 +50,7 @@ class Settings(BaseSettings):
 
     # Scanner politeness and safety
     scanner_user_agent: str = (
-        "CivicShield/0.1 (+https://github.com/koshikkumaravel/civicshield; authorized scan)"
+        "CivicShield/0.1 (+https://github.com/koshster/civicshield; authorized scan)"
     )
     scanner_requests_per_second: float = 2.0
     scanner_burst: int = 5
