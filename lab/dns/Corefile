@@ -1,0 +1,17 @@
+# Lab DNS. Authoritative for the two lab zones only; everything else gets REFUSED,
+# so a misconfigured scanner fails loudly instead of leaking queries to the internet.
+lab.civicshield.test:53 {
+    file /zones/db.lab.civicshield.test {
+        reload 2s
+    }
+    log
+    errors
+}
+notours.test:53 {
+    file /zones/db.notours.test
+    log
+    errors
+}
+.:53 {
+    errors
+}

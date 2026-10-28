@@ -90,7 +90,7 @@ python_version = "3.12"
 strict = true
 plugins = ["pydantic.mypy"]
 mypy_path = "src"
-packages = ["civicshield"]
+packages = ["civicshield", "eval", "lab"]
 
 [[tool.mypy.overrides]]
 module = ["celery.*", "kombu.*"]
@@ -98,6 +98,7 @@ ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # so tests can import eval/ and lab/
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 markers = [

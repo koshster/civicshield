@@ -32,3 +32,5 @@ eval/results/runs/
 .vscode/
 .DS_Store
 *.tsbuildinfo
+lab/dns/zones/
+lab/logs/

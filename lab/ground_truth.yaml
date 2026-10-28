@@ -1,0 +1,58 @@
+# What the scanner SHOULD report for each lab zone. Anything it reports that isn't listed
+# here is a false positive; anything listed that it misses is a false negative.
+#
+#   hosts: finding types expected on BOTH the apex and www hosts (web checks)
+#   zone:  finding types expected on the zone itself (email checks)
+#   score: false → the zone exists to test something else (scope), not detection
+#
+# Every zone not listed under `zone:` has the clean email default from lab/cases.py
+# ("v=spf1 -all" + DMARC p=reject with rua), so it must produce no email findings.
+
+hardened.lab.civicshield.test:      # negative control: must be completely clean
+  hosts: []
+  zone: []
+
+bad-headers.lab.civicshield.test:
+  hosts:
+    - headers.hsts.missing
+    - headers.csp.missing
+    - headers.clickjacking.missing
+    - headers.xcto.missing
+    - headers.referrer_policy.missing
+    - headers.permissions_policy.missing
+    - headers.version_disclosure
+    - headers.cookie.missing_secure
+    - headers.cookie.missing_httponly
+    - headers.cookie.missing_samesite
+
+weak-tls.lab.civicshield.test:
+  hosts:
+    - tls.protocol.tls10
+    - tls.protocol.tls11
+
+expired-cert.lab.civicshield.test:
+  hosts:
+    - tls.cert.expired
+
+self-signed.lab.civicshield.test:
+  hosts:
+    - tls.cert.self_signed
+
+spf-missing.lab.civicshield.test:
+  zone:
+    - email.spf.missing
+
+spf-pass-all.lab.civicshield.test:
+  zone:
+    - email.spf.pass_all
+
+dmarc-missing.lab.civicshield.test:
+  zone:
+    - email.dmarc.missing
+
+dmarc-none.lab.civicshield.test:
+  zone:
+    - email.dmarc.policy_none
+
+redirector.lab.civicshield.test:
+  score: false
