@@ -15,6 +15,7 @@ from pydantic import AfterValidator, BaseModel, ConfigDict, EmailStr, Field
 
 from civicshield.authz.verification import VerificationInstructions
 from civicshield.enums import (
+    Category,
     CheckRunStatus,
     Confidence,
     DomainStatus,
@@ -27,6 +28,7 @@ from civicshield.enums import (
     Severity,
     VerificationMethod,
 )
+from civicshield.remediation import RenderedRemediation
 
 _SLUG = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -188,8 +190,73 @@ class ObservationOut(ORM):
     references: list[Any]
 
 
+class FactorOut(BaseModel):
+    symbol: str
+    name: str
+    value: float
+    explanation: str
+
+
+class RiskOut(BaseModel):
+    score: float
+    factors: list[FactorOut]
+
+
 class IssueDetail(IssueOut):
     observations: list[ObservationOut]
+    risk: RiskOut
+    remediation: RenderedRemediation
+
+
+# --- overview (prioritization) ------------------------------------------------------
+class ActionIssueOut(BaseModel):
+    id: uuid.UUID
+    title: str
+    asset: str
+    severity: Severity
+    confidence: Confidence
+    risk: float
+
+
+class ActionOut(BaseModel):
+    key: str
+    title: str
+    category: Category
+    zone: str
+    effort: int
+    effort_minutes: int
+    risk_reduction: float
+    priority: float
+    effective_priority: float
+    fix_now: bool
+    plannable: bool
+    blocked_by: list[str]  # titles of actions that must be done first
+    unblocks: list[str]
+    why: list[str]  # "why is this ranked here?"
+    issues: list[ActionIssueOut]
+
+
+class PlanItemOut(BaseModel):
+    action: ActionOut
+    reason: str
+
+
+class ScoreOut(BaseModel):
+    score: int
+    grade: str
+    residual_risk: float
+
+
+class OverviewOut(BaseModel):
+    # None until a scan has completed: "100, A" with nothing checked would be a lie.
+    score: ScoreOut | None
+    categories: dict[Category, ScoreOut]
+    plan: list[PlanItemOut]
+    actions: list[ActionOut]
+    budget_minutes: int
+    issue_counts: dict[IssueStatus, int]
+    last_scan: ScanOut | None
+    last_completed_scan_at: datetime | None
 
 
 class AuditEventOut(ORM):

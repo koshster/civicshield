@@ -48,6 +48,9 @@ class Settings(BaseSettings):
     # the browser sees a single origin: no CORS, and the strict cookie/CSRF model holds.
     frontend_dist: str | None = None
 
+    # Volunteer time per week that the "fix these this week" plan fills.
+    weekly_budget_minutes: int = Field(default=120, ge=15, le=2400)
+
     # Scanner politeness and safety
     scanner_user_agent: str = (
         "CivicShield/0.1 (+https://github.com/koshster/civicshield; authorized scan)"

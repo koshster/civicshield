@@ -220,17 +220,17 @@ def is_fix_now(issue: IssueLike) -> bool:
 
 
 @dataclass
-class RankedIssue:
-    issue: IssueLike
+class RankedIssue[I: IssueLike]:
+    issue: I
     risk: Risk
 
 
 @dataclass
-class Action:
+class Action[I: IssueLike]:
     key: str
     zone: str
     entry: RemediationEntry
-    issues: list[RankedIssue]  # highest risk first
+    issues: list[RankedIssue[I]]  # highest risk first
     risk_reduction: float
     priority: float  # risk_reduction / √effort
     effective_priority: float  # priority, raised to that of anything this unblocks
@@ -238,15 +238,15 @@ class Action:
     # Plannable only if at least one issue is more than a low-confidence guess:
     # a false alarm in "this week" costs more trust than it's worth.
     confident: bool
-    blocked_by: list[Action] = field(default_factory=list, repr=False, compare=False)
-    unblocks: list[Action] = field(default_factory=list, repr=False, compare=False)
+    blocked_by: list[Action[I]] = field(default_factory=list, repr=False, compare=False)
+    unblocks: list[Action[I]] = field(default_factory=list, repr=False, compare=False)
 
     @property
     def category(self) -> Category:
         return self.entry.category
 
     @property
-    def lead(self) -> RankedIssue:
+    def lead(self) -> RankedIssue[I]:
         return self.issues[0]
 
     @property
@@ -286,15 +286,15 @@ def _risk_reduction(risks: Sequence[float]) -> float:
     return sum(r * DECAY**i for i, r in enumerate(sorted(risks, reverse=True)))
 
 
-def build_actions(issues: Iterable[IssueLike], zones: Iterable[str]) -> list[Action]:
+def build_actions[I: IssueLike](issues: Iterable[I], zones: Iterable[str]) -> list[Action[I]]:
     """Group issues into actions and rank them by effective priority (highest first)."""
     zone_list = [z.lower() for z in zones]
-    groups: dict[tuple[str, str], list[RankedIssue]] = defaultdict(list)
+    groups: dict[tuple[str, str], list[RankedIssue[I]]] = defaultdict(list)
     for issue in issues:
         zone = zone_for(issue.asset, zone_list)
         groups[(issue.remediation_key, zone)].append(RankedIssue(issue, issue_risk(issue, zone)))
 
-    actions: dict[tuple[str, str], Action] = {}
+    actions: dict[tuple[str, str], Action[I]] = {}
     for (key, zone), ranked in groups.items():
         ranked.sort(key=lambda r: r.risk.score, reverse=True)
         entry = get_entry(key)
@@ -345,17 +345,17 @@ def build_actions(issues: Iterable[IssueLike], zones: Iterable[str]) -> list[Act
 
 
 @dataclass(frozen=True)
-class PlanItem:
-    action: Action
+class PlanItem[I: IssueLike]:
+    action: Action[I]
     reason: str
 
 
-def weekly_plan(
-    actions: Sequence[Action],
+def weekly_plan[I: IssueLike](
+    actions: Sequence[Action[I]],
     budget_minutes: int = DEFAULT_WEEKLY_BUDGET_MINUTES,
     max_items: int = MAX_PLAN_ITEMS,
     max_per_category: int = MAX_PLAN_PER_CATEGORY,
-) -> list[PlanItem]:
+) -> list[PlanItem[I]]:
     """ "Fix these things this week": a greedy fill of the volunteer-time budget.
 
     1. Fix-now actions always go first, regardless of budget or count.
@@ -365,7 +365,7 @@ def weekly_plan(
        if the most important task takes longer than the budget, the plan names it
        rather than coming back empty.
     """
-    plan: list[PlanItem] = []
+    plan: list[PlanItem[I]] = []
     per_category: dict[Category, int] = defaultdict(int)
     remaining = budget_minutes
     candidates = [a for a in actions if a.plannable]
@@ -422,7 +422,7 @@ def _score(residual: float) -> Score:
 
 
 def org_score(
-    actions: Sequence[Action], categories: Iterable[Category]
+    actions: Sequence[Action[Any]], categories: Iterable[Category]
 ) -> tuple[Score, dict[Category, Score]]:
     """Overall and per-category scores from residual risk (the actions' risk reduction).
 

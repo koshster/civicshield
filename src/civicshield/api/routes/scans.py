@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from civicshield import remediation
 from civicshield.api.deps import DB, CurrentUser, Enqueuer, Operator, OrgAccess
+from civicshield.api.routes.overview import org_zones, risk_out
 from civicshield.api.schemas import (
     AuditEventOut,
     CheckRunOut,
@@ -23,6 +25,7 @@ from civicshield.authz.scope_builder import NotAuthorizedError
 from civicshield.config import get_settings
 from civicshield.enums import IssueStatus, ScanTrigger
 from civicshield.models import AuditEvent, Issue, Observation, Scan
+from civicshield.prioritization import issue_risk, zone_for
 from civicshield.scanning import ScanConflictError, request_scan
 
 router = APIRouter(prefix="/orgs/{org_id}", tags=["scans"])
@@ -105,9 +108,14 @@ async def get_issue(issue_id: uuid.UUID, org: OrgAccess, db: DB) -> IssueDetail:
             .limit(10)
         )
     ).scalars()
+    zone = zone_for(issue.asset, await org_zones(db, org.id))
     return IssueDetail(
         **IssueOut.model_validate(issue).model_dump(),
         observations=[ObservationOut.model_validate(o) for o in obs],
+        risk=risk_out(issue_risk(issue, zone)),
+        remediation=remediation.render(
+            issue.remediation_key, asset=issue.asset, zone=zone, facts=issue.facts
+        ),
     )
 
 
