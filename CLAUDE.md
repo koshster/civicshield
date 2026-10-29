@@ -56,6 +56,12 @@ Use `set -o pipefail` when piping test output (`pytest | tail` hides failures ot
 - Comments explain *why* (threat, trade-off, RFC section), not what.
 - New lab case → add it to `lab/cases.py` + `lab/ground_truth.yaml` (a unit test checks
   that the two agree and that every expected type exists).
+- New finding type → add its exploitability to `prioritization.EXPLOITABILITY`. New
+  remediation key → add an entry to `remediation/library.yaml`, with `requires` if
+  another fix must come first. Tests fail on missing, dead or unknown entries.
+  Templates are `{{name}}` substitution only: never add logic or HTML.
+- Findings are built through each check's local `add(ftype, title, severity, rkey, ...)`
+  helper, with a literal `rkey`. The remediation tests read those calls from the source.
 
 ## Layout
 
@@ -66,6 +72,9 @@ Use `set -o pipefail` when piping test output (`pytest | tail` hides failures ot
 - `engine/net/`: scope, SSRF guard, gateway (IP pinning), HTTP client, DNS, TLS prober
   plus raw ClientHello wire code
 - `engine/checks/`: `tls/`, `headers/`, `email/`, and `base.py` (the interface)
+- `remediation/`: curated fix guidance (`library.yaml`) and its renderer
+- `prioritization.py`: pure risk/action/weekly-plan/score logic (ADR 0005); served by
+  `api/routes/overview.py`
 - `scanning.py`: request → claim → execute → persist/diff, plus the sweeper
 - `worker/celery_app.py`: Celery tasks and beat schedule
 - `frontend/`: React + TS, served same-origin by the API in production

@@ -77,6 +77,30 @@ re-reported each scan. An issue is only marked fixed when the same check ran
 successfully on the same asset and didn't find it. "We couldn't look" is never treated
 as "it's gone".
 
+## From findings to "fix these 3 things this week"
+
+Findings are grouped into **tasks** ("Turn on HSTS" fixes it on both `example.org` and
+`www`) and ranked so a volunteer with two hours knows where to start
+([ADR 0005](docs/adr/0005-prioritization.md)):
+
+- **Risk** per issue = 100 × severity × exploitability × exposure × confidence ×
+  urgency. It's multiplicative, so a probable false positive can't outrank a confirmed
+  problem, and certificate expiry ramps up as the date nears.
+- **Priority** = risk reduction ÷ √effort (WSJF with a damped effort term): quick wins
+  first, but real severity still dominates.
+- **Prerequisites:** HSTS waits for working HTTPS, and DMARC enforcement waits for
+  SPF, DKIM and reporting. Blockers inherit the priority of what they unblock.
+- **Weekly plan:** expired certificates are pinned to the top, then a 2-hour budget is
+  filled, with at most 3 tasks and never a low-confidence guess.
+- **Score** 0–100 with a letter grade, overall and per category. Accepting a risk
+  doesn't raise it. Property tests guarantee that fixing an issue never lowers it.
+
+Each task comes from a curated [remediation library](src/civicshield/remediation/library.yaml):
+a plain-language "why", steps for staff, copy-paste snippets for the tech helper
+(nginx, Apache, Cloudflare, Google Workspace, Microsoft 365), a verify command, and a
+**"copy as email for your tech helper"** button. Every number has a "Why this rank?"
+breakdown in the UI.
+
 ## Evaluation
 
 An isolated Docker lab (`internal: true` network, no internet route) holds deliberately
@@ -93,7 +117,10 @@ lab DNS, verifies, signs the authorization and scans. It then scores the issues 
 | **overall** | 32 | 0 | 0 | 1.00 | 1.00 |
 
 Requests reaching the out-of-scope host (reachable only via an in-scope redirect): **0**.
-Audit chain intact: **yes**. CI fails if any of these regress.
+Audit chain intact: **yes**. **Fix → rescan:** the harness then fixes one case at the
+lab DNS (DMARC `p=none` → `p=reject`) and rescans. Exactly that issue is marked fixed,
+nothing else changes, and residual risk drops (579.5 → 543.5). CI fails if any of these
+regress.
 
 *Honest caveat:* the lab is small and was written alongside the checks, so this shows
 "no regressions on known cases", not real-world accuracy.
@@ -116,8 +143,9 @@ Then, in the dashboard:
    click *Verify*.
 3. On **Authorization**, have the person responsible read and sign the authorization for
    the verified domains.
-4. **Start a scan.** Results appear under *Issues*, ranked by severity, with evidence
-   and fix guidance.
+4. **Start a scan.** The overview shows the score, a "fix these this week" plan and
+   every open task. Each issue page has evidence, plain-language fix steps and
+   copy-paste snippets for whoever makes the change.
 
 Everything is bound to `127.0.0.1`. Put a TLS-terminating reverse proxy in front for any
 real deployment, and set `CIVICSHIELD_ENV=prod`, `CIVICSHIELD_COOKIE_SECURE=true` and a
@@ -144,6 +172,8 @@ src/civicshield/
   engine/net/   the scoped network layer: scope, SSRF guard, gateway, HTTP, DNS, TLS prober
   engine/checks/ TLS, headers, email checks (gather + pure analyze)
   engine/       runner and fingerprinting
+  remediation/  curated fix guidance (library.yaml) and its renderer
+  prioritization.py  risk, action grouping, weekly plan, org score
   scanning.py   scan lifecycle: request, claim, execute, diff, sweeper
   worker/       Celery app and tasks
   audit/        hash-chained audit log
@@ -154,11 +184,12 @@ docs/           PLAN.md (design + roadmap), adr/
 
 ## Roadmap
 
-Next up: subdomain discovery via certificate transparency, a curated remediation
-library with copy-paste fixes for common hosts (WordPress, Squarespace, Google
-Workspace), WSJF-style prioritization, change alerts for continuous monitoring, and an
-optional, guardrailed LLM layer for plain-language reports. See
-[docs/PLAN.md §3](docs/PLAN.md).
+The MVP (phase 1) is complete. Next up: passive WordPress fingerprinting matched against
+vulnerability feeds (CISA KEV, EPSS), opt-in low-impact exposure checks, an "I fixed
+this" button that re-runs one check on one asset, platform-aware fix steps (Squarespace,
+WordPress.com), subdomain discovery via certificate transparency, change alerts for
+continuous monitoring, and an optional, guardrailed LLM layer for plain-language reports.
+See [docs/PLAN.md §3](docs/PLAN.md).
 
 ## License
 

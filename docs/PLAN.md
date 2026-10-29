@@ -701,7 +701,7 @@ green CI.
 
 ### Phase 1: MVP (weeks 1–4)
 
-**Week 1: Foundations and the authorization spine**
+**Week 1: Foundations and the authorization spine** *(done, except pre-commit)*
 - uv project, ruff, mypy strict, pre-commit, CI (lint, types, tests)
 - Docker Compose (app, worker, postgres), config, structured logging with redaction
 - Models + Alembic: org, user, membership, domain, authorization, scan, check_run, observation,
@@ -712,7 +712,7 @@ green CI.
 - *Demo:* sign up, add a domain, verify it, sign authorization; an unverified scan attempt is
   refused and audited.
 
-**Week 2: Check engine and three real checks**
+**Week 2: Check engine and three real checks** *(done; Celery instead of Procrastinate, see §4)*
 - Check interface, registry, planner, runner, procrastinate scan job (transactional enqueue)
 - **TLS check:** cert validity/expiry/hostname/chain, raw-ClientHello protocol probe (1.0/1.1),
   HTTP→HTTPS redirect, HSTS
@@ -724,13 +724,13 @@ green CI.
 - Fingerprinted Issues + scan diff
 - *Demo:* scan a verified domain from the CLI; findings persisted; rerun shows the diff.
 
-**Week 3: Lab and eval harness**
+**Week 3: Lab and eval harness** *(done, except the differential-testing stretch goal)*
 - Lab network, CoreDNS zone, lab CA, nginx variants, hardened control
 - Ground truth + harness + metrics report + CI job with baseline gate
 - Differential check against `testssl.sh` / `checkdmarc` (stretch)
 - *Demo:* `make eval` prints per-category precision/recall. **First resume numbers.**
 
-**Week 4: Prioritization, reports, UI**
+**Week 4: Prioritization, reports, UI** *(done 2026-10-28; React instead of HTMX, see §4; ADR 0005)*
 - Risk scoring, action grouping, weekly plan (with DMARC staging prerequisite)
 - Remediation library for all MVP finding types (template reports, no LLM yet)
 - HTMX dashboard: onboarding wizard, overview + score, "this week" list, finding detail with
