@@ -359,6 +359,7 @@ def analyze(obs: EmailObservation) -> list[Finding]:
                     "email.add_dmarc_reporting",
                     dmarc_refs,
                     dmarc_ev,
+                    facts=pol_facts,
                 )
 
     # --- DKIM ---------------------------------------------------------------------------

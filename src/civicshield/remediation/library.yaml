@@ -1,0 +1,643 @@
+# CivicShield remediation library.
+#
+# One entry per remediation_key that a check can emit. Each entry is one *action*: a
+# task a person can do ("Turn on HSTS"), which may fix several findings at once.
+#
+# Fields:
+#   title     imperative action name shown in the weekly plan
+#   effort    1: ≤15 min (DNS record, a toggle)  2: ≤1 h  3: half a day  4: needs a developer/vendor
+#   why       plain language for nonprofit staff (aim for an 8th-grade reading level)
+#   steps     what to do, in order, for a non-technical person or their helper
+#   technical precise snippets for the person making the change, per platform
+#   verify    how to confirm the fix outside CivicShield
+#   requires  remediation keys that must be done first on the same domain (see
+#             prioritization.py; e.g. HSTS before HTTPS works locks visitors out)
+#
+# Templates: {{asset}} (host or zone the issue is on), {{zone}} (the verified domain it
+# belongs to) and the finding's facts by name, e.g. {{days_to_expiry}}. Nothing else:
+# there's deliberately no logic, so this file stays reviewable by non-programmers and
+# translatable. A unit test fails on unknown placeholders.
+
+# --- TLS / HTTPS ------------------------------------------------------------------------
+
+tls.enable_https:
+  title: Turn on HTTPS for {{asset}}
+  category: tls
+  effort: 2
+  why: >-
+    Your site only works over plain HTTP, so anyone on the same Wi-Fi as a visitor can read
+    or change what they see, including donation forms. Free certificates make HTTPS
+    standard everywhere, and browsers mark HTTP sites as "Not secure".
+  steps:
+    - Log in to your web host's control panel and look for "SSL", "HTTPS" or "Let's Encrypt". Most hosts turn it on with one click for free.
+    - If you run your own server, have your tech helper install a free Let's Encrypt certificate (commands below).
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: Let's Encrypt (certbot, nginx)
+      snippet: sudo certbot --nginx -d {{zone}} -d www.{{zone}}
+    - platform: Let's Encrypt (certbot, Apache)
+      snippet: sudo certbot --apache -d {{zone}} -d www.{{zone}}
+    - platform: Cloudflare
+      snippet: SSL/TLS → Overview → set encryption mode to "Full (strict)" once the origin has a valid certificate.
+  verify: curl -sI https://{{asset}}/ should return a status line, not a connection error.
+  references:
+    - https://letsencrypt.org/getting-started/
+
+tls.renew_certificate:
+  title: Renew the HTTPS certificate for {{asset}}
+  category: tls
+  effort: 1
+  why: >-
+    The certificate that proves your site is really yours expires on {{not_after}}
+    ({{days_to_expiry}} days from the scan). After that, every visitor sees a full-page
+    security warning and most will leave, including donors.
+  steps:
+    - Find out who manages your certificate. Usually it's your web host, and renewal is a button in the control panel.
+    - Renew it, and turn on automatic renewal if it's offered so this doesn't happen again.
+    - Run a new CivicShield scan to confirm the new expiry date.
+  technical:
+    - platform: Let's Encrypt (certbot)
+      snippet: |-
+        sudo certbot renew
+        sudo certbot renew --dry-run        # check that automatic renewal works
+        systemctl list-timers | grep certbot
+    - platform: Hosting control panel
+      snippet: SSL/TLS (or "Security") → the certificate for {{asset}} → Renew / enable AutoSSL.
+  verify: echo | openssl s_client -connect {{asset}}:443 -servername {{asset}} 2>/dev/null | openssl x509 -noout -enddate
+  references:
+    - https://letsencrypt.org/docs/faq/
+
+tls.replace_certificate:
+  title: Install a valid, trusted certificate for {{asset}}
+  category: tls
+  effort: 2
+  why: >-
+    Browsers don't trust the certificate this site presents, so visitors see a warning
+    page. Teaching people to click through warnings is exactly what attackers rely on.
+  steps:
+    - Ask your web host to issue a certificate that covers {{asset}}. Free Let's Encrypt certificates work everywhere.
+    - Make sure the certificate lists every name people use, usually both {{zone}} and www.{{zone}}.
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: Let's Encrypt (certbot)
+      snippet: sudo certbot --nginx -d {{zone}} -d www.{{zone}}     # issues a 2048-bit RSA or P-256 cert signed with SHA-256
+    - platform: Requirements if buying a certificate
+      snippet: Publicly trusted CA · names on the cert include {{asset}} · RSA ≥ 2048 bits or ECDSA P-256 · SHA-256 signature
+  verify: echo | openssl s_client -connect {{asset}}:443 -servername {{asset}} 2>/dev/null | openssl x509 -noout -subject -issuer -ext subjectAltName
+  references:
+    - https://letsencrypt.org/getting-started/
+
+tls.fix_certificate_chain:
+  title: Serve the full certificate chain on {{asset}}
+  category: tls
+  effort: 2
+  why: >-
+    Your certificate is fine, but the server doesn't send the "intermediate" certificate
+    that links it to a trusted authority. Some browsers and phones work around this and
+    some don't, so the site breaks for part of your audience.
+  steps:
+    - Ask whoever set up the certificate to install the "full chain" version instead of the certificate alone.
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: nginx
+      snippet: ssl_certificate /etc/letsencrypt/live/{{zone}}/fullchain.pem;   # not cert.pem
+    - platform: Apache 2.4.8+
+      snippet: SSLCertificateFile /etc/letsencrypt/live/{{zone}}/fullchain.pem
+  verify: echo | openssl s_client -connect {{asset}}:443 -servername {{asset}} -showcerts 2>/dev/null | grep -c BEGIN   # expect 2 or more
+  references:
+    - https://www.rfc-editor.org/rfc/rfc8446#section-4.4.2
+
+tls.disable_legacy_protocols:
+  title: Turn off old TLS versions on {{asset}}
+  category: tls
+  effort: 2
+  why: >-
+    The server still accepts encryption versions that were retired in 2021 because of
+    known weaknesses. Every current browser supports the modern versions, so turning the
+    old ones off costs you nothing.
+  steps:
+    - Ask your web host or tech helper to allow only TLS 1.2 and TLS 1.3. On many hosts and on Cloudflare this is a single setting.
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: nginx
+      snippet: ssl_protocols TLSv1.2 TLSv1.3;
+    - platform: Apache
+      snippet: SSLProtocol -all +TLSv1.2 +TLSv1.3
+    - platform: Cloudflare
+      snippet: SSL/TLS → Edge Certificates → Minimum TLS Version → TLS 1.2
+  verify: openssl s_client -connect {{asset}}:443 -tls1_1 </dev/null   # should fail to connect
+  references:
+    - https://www.rfc-editor.org/rfc/rfc8996
+    - https://ssl-config.mozilla.org/
+
+tls.disable_weak_ciphers:
+  title: Turn off weak encryption ciphers on {{asset}}
+  category: tls
+  effort: 2
+  why: >-
+    The server still agrees to use broken encryption methods if a visitor's software asks
+    for them. Modern browsers never need these, so removing them is safe.
+  steps:
+    - Ask your tech helper to apply Mozilla's "intermediate" TLS configuration for your server software.
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: nginx (Mozilla intermediate)
+      snippet: |-
+        ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+        ssl_prefer_server_ciphers off;
+    - platform: Any server
+      snippet: Generate a config at https://ssl-config.mozilla.org/ ("Intermediate" profile).
+  verify: Run a new CivicShield scan; it offers only the weak ciphers and checks that the server refuses them.
+  references:
+    - https://ssl-config.mozilla.org/
+
+tls.redirect_http_to_https:
+  title: Send HTTP visitors to HTTPS on {{asset}}
+  category: tls
+  effort: 1
+  why: >-
+    People who type your address without "https://" land on the unencrypted version of
+    the site and stay there. A redirect moves them to the secure version automatically.
+  steps:
+    - In your web host's control panel, look for "Force HTTPS" or "Redirect HTTP to HTTPS" and turn it on.
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: nginx
+      snippet: |-
+        server {
+            listen 80;
+            server_name {{asset}};
+            return 301 https://$host$request_uri;
+        }
+    - platform: Apache (:80 virtual host)
+      snippet: Redirect permanent / https://{{asset}}/
+    - platform: Cloudflare
+      snippet: SSL/TLS → Edge Certificates → Always Use HTTPS → On
+  verify: curl -sI http://{{asset}}/ should return 301 with "Location:" starting with https://
+  references:
+    - https://developer.mozilla.org/en-US/docs/Web/HTTP/Redirections
+
+# --- Security headers -------------------------------------------------------------------
+
+headers.add_hsts:
+  title: Turn on HSTS for {{asset}}
+  category: headers
+  effort: 1
+  # HSTS tells browsers to refuse anything but valid HTTPS for months. Turning it on
+  # while HTTPS or the certificate is broken locks every returning visitor out, with no
+  # "continue anyway" button. So it's only offered once those are fixed.
+  requires:
+    - tls.enable_https
+    - tls.redirect_http_to_https
+    - tls.renew_certificate
+    - tls.replace_certificate
+    - tls.fix_certificate_chain
+  why: >-
+    HSTS tells browsers "only ever talk to this site over HTTPS". Without it, an attacker
+    on public Wi-Fi can quietly downgrade a visitor to the insecure version before the
+    redirect happens.
+  steps:
+    - Ask your tech helper to add the header below. Start with a short duration (one day), check the site still works, then raise it to one year.
+    - Only add "includeSubDomains" once every subdomain of {{zone}} works over HTTPS.
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: nginx
+      snippet: add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+    - platform: Apache (mod_headers)
+      snippet: Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    - platform: Cloudflare
+      snippet: SSL/TLS → Edge Certificates → HTTP Strict Transport Security (HSTS) → Enable
+  verify: curl -sI https://{{asset}}/ | grep -i strict-transport-security
+  references:
+    - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security
+
+headers.add_csp:
+  title: Add a Content-Security-Policy to {{asset}}
+  category: headers
+  effort: 3
+  why: >-
+    A Content-Security-Policy limits which scripts your pages may run. If someone slips
+    malicious code into your site (through a plugin bug, for example), the browser
+    refuses to run it. This is the main defense against card-skimming on donation pages.
+  steps:
+    - "Start with a safe baseline that won't break anything (first snippet): it blocks clickjacking and old browser plugins."
+    - Then have your tech helper list the outside services your pages load scripts from (donation widget, analytics) and build a script policy, first in report-only mode so nothing breaks.
+    - When the reports are quiet for a week or two, switch from report-only to enforcing.
+  technical:
+    - platform: Stage 1 baseline (safe to enforce now)
+      snippet: "Content-Security-Policy: frame-ancestors 'self'; object-src 'none'; base-uri 'self'"
+    - platform: Stage 2 (report-only first; adjust the hosts to your site)
+      snippet: "Content-Security-Policy-Report-Only: default-src 'self'; script-src 'self' https://js.stripe.com; frame-src https://js.stripe.com; object-src 'none'; base-uri 'self'; frame-ancestors 'self'"
+    - platform: nginx
+      snippet: add_header Content-Security-Policy "frame-ancestors 'self'; object-src 'none'; base-uri 'self'" always;
+  verify: curl -sI https://{{asset}}/ | grep -i content-security-policy
+  references:
+    - https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
+    - https://csp-evaluator.withgoogle.com/
+
+headers.strengthen_csp:
+  title: Tighten the Content-Security-Policy on {{asset}}
+  category: headers
+  effort: 3
+  why: >-
+    You have a Content-Security-Policy, but parts of it allow exactly the kind of
+    injected script it's meant to block. It's doing less than it looks like.
+  steps:
+    - Have your tech helper replace 'unsafe-inline' with nonces or hashes, remove 'unsafe-eval', and replace wildcards (*) with the specific hosts you load from.
+    - Test in report-only mode first, then enforce.
+  technical:
+    - platform: Nonce-based script policy
+      snippet: "script-src 'nonce-{random-per-response}' 'strict-dynamic'; object-src 'none'; base-uri 'self'"
+    - platform: Check your policy
+      snippet: Paste the current header into https://csp-evaluator.withgoogle.com/
+  verify: curl -sI https://{{asset}}/ | grep -i content-security-policy
+  references:
+    - https://web.dev/articles/strict-csp
+
+headers.add_frame_protection:
+  title: Stop other sites from embedding {{asset}}
+  category: headers
+  effort: 1
+  why: >-
+    Any website can currently load your pages invisibly inside its own and trick visitors
+    into clicking buttons on yours ("clickjacking"). One header prevents it.
+  steps:
+    - Ask your tech helper to add one of the headers below.
+    - If you intentionally embed your own pages on a partner's site, list that site in frame-ancestors instead.
+  technical:
+    - platform: nginx
+      snippet: add_header Content-Security-Policy "frame-ancestors 'self'" always;   # or: add_header X-Frame-Options SAMEORIGIN always;
+    - platform: Apache
+      snippet: Header always set X-Frame-Options "SAMEORIGIN"
+  verify: curl -sI https://{{asset}}/ | grep -iE "x-frame-options|frame-ancestors"
+  references:
+    - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Security-Policy/frame-ancestors
+
+headers.add_xcto:
+  title: Add X-Content-Type-Options to {{asset}}
+  category: headers
+  effort: 1
+  why: >-
+    This header stops browsers from guessing what kind of file something is, which can
+    turn an uploaded file into running code. It's a one-line, zero-risk change.
+  steps:
+    - Ask your tech helper to add the header below.
+  technical:
+    - platform: nginx
+      snippet: add_header X-Content-Type-Options nosniff always;
+    - platform: Apache
+      snippet: Header always set X-Content-Type-Options "nosniff"
+  verify: curl -sI https://{{asset}}/ | grep -i x-content-type-options
+  references:
+    - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Content-Type-Options
+
+headers.add_referrer_policy:
+  title: Set a Referrer-Policy on {{asset}}
+  category: headers
+  effort: 1
+  why: >-
+    When visitors click a link off your site, their browser can tell the other site the
+    full address they came from. For pages like "/volunteer/thank-you?email=..." that
+    leaks private details.
+  steps:
+    - Ask your tech helper to add the header below.
+  technical:
+    - platform: nginx
+      snippet: add_header Referrer-Policy strict-origin-when-cross-origin always;
+    - platform: Apache
+      snippet: Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  verify: curl -sI https://{{asset}}/ | grep -i referrer-policy
+  references:
+    - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Referrer-Policy
+
+headers.add_permissions_policy:
+  title: Add a Permissions-Policy to {{asset}}
+  category: headers
+  effort: 1
+  why: >-
+    This header turns off browser features your site doesn't use, like the camera,
+    microphone and location, so injected code can't use them either. Low risk, low effort.
+  steps:
+    - Ask your tech helper to add the header below.
+  technical:
+    - platform: nginx
+      snippet: add_header Permissions-Policy "camera=(), microphone=(), geolocation=()" always;
+    - platform: Apache
+      snippet: Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  verify: curl -sI https://{{asset}}/ | grep -i permissions-policy
+  references:
+    - https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Permissions-Policy
+
+headers.hide_version:
+  title: Stop {{asset}} from announcing its software version
+  category: headers
+  effort: 1
+  why: >-
+    The server tells everyone exactly which software and version it runs
+    ("{{software}}" in the {{header}} header). Attackers scan the internet for specific
+    old versions. Hiding it doesn't fix outdated software, but it stops you from
+    showing up in those searches.
+  steps:
+    - Ask your tech helper to turn off version headers (settings below).
+    - Also check that the software itself is up to date. If it's old enough to be worth hiding, it may need an update.
+  technical:
+    - platform: nginx
+      snippet: server_tokens off;
+    - platform: Apache
+      snippet: |-
+        ServerTokens Prod
+        ServerSignature Off
+    - platform: PHP (php.ini)
+      snippet: expose_php = Off
+  verify: curl -sI https://{{asset}}/ | grep -iE "^(server|x-powered-by):"
+  references:
+    - https://cwe.mitre.org/data/definitions/200.html
+
+headers.cookie_flags:
+  title: Add security flags to cookies on {{asset}}
+  category: headers
+  effort: 2
+  why: >-
+    The cookie "{{cookie}}" is missing protections. Without the Secure flag it can be sent
+    over plain HTTP. Without HttpOnly, injected scripts can read it. Without SameSite,
+    other sites can make requests that carry it. If it's a login cookie, these protect
+    the account.
+  steps:
+    - Ask your tech helper or website vendor to set Secure, HttpOnly and SameSite on the cookie named above.
+    - If the cookie comes from a plugin or third-party service, check for an update or a setting.
+  technical:
+    - platform: Cookie attributes
+      snippet: "Set-Cookie: {{cookie}}=...; Path=/; Secure; HttpOnly; SameSite=Lax"
+    - platform: PHP sessions (php.ini)
+      snippet: |-
+        session.cookie_secure = 1
+        session.cookie_httponly = 1
+        session.cookie_samesite = "Lax"
+    - platform: nginx reverse proxy (1.19.3+)
+      snippet: proxy_cookie_flags ~ secure httponly samesite=lax;
+  verify: curl -sI https://{{asset}}/ | grep -i set-cookie
+  references:
+    - https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies#restrict_access_to_cookies
+
+# --- Email ------------------------------------------------------------------------------
+
+email.add_spf:
+  title: Publish an SPF record for {{zone}}
+  category: email
+  effort: 1
+  why: >-
+    SPF is the public list of services allowed to send email as @{{zone}}. Without it,
+    receiving mail servers can't tell your real email from a scammer pretending to be
+    your director.
+  steps:
+    - Make a list of everything that sends email as your domain. Usually that's your email provider plus any newsletter or donation tools.
+    - In your DNS provider (often your domain registrar or Cloudflare), add one TXT record on the root of {{zone}} using the examples below.
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: Google Workspace
+      snippet: '{{zone}}  TXT  "v=spf1 include:_spf.google.com ~all"'
+    - platform: Microsoft 365
+      snippet: '{{zone}}  TXT  "v=spf1 include:spf.protection.outlook.com -all"'
+    - platform: Several senders
+      snippet: '{{zone}}  TXT  "v=spf1 include:_spf.google.com include:sendgrid.net ~all"   # one record only, all senders in it'
+  verify: dig +short TXT {{zone}} | grep spf1
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7208
+    - https://support.google.com/a/answer/10685031
+
+email.lock_down_no_mail:
+  title: Mark {{zone}} as a domain that never sends email
+  category: email
+  effort: 1
+  why: >-
+    This domain doesn't use email, but nothing tells the world that, so scammers can
+    send convincing messages "from" it. Three DNS records say "no mail ever comes from
+    here" and receiving servers will reject the fakes.
+  steps:
+    - In your DNS provider, add the records below. They only affect email, not your website.
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: DNS records
+      snippet: |-
+        {{zone}}          TXT  "v=spf1 -all"
+        _dmarc.{{zone}}   TXT  "v=DMARC1; p=reject;"
+        {{zone}}          MX   0 .          # "null MX", RFC 7505
+  verify: dig +short TXT {{zone}}; dig +short TXT _dmarc.{{zone}}
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7505
+    - https://www.gov.uk/guidance/protect-domains-that-dont-send-email
+
+email.merge_spf:
+  title: Merge the SPF records for {{zone}} into one
+  category: email
+  effort: 1
+  why: >-
+    {{zone}} has {{record_count}} SPF records. The rules allow exactly one. With more,
+    receiving servers treat SPF as broken, which can send your real email to spam.
+  steps:
+    - Combine all the "include:" parts into a single TXT record and delete the others.
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: Example
+      snippet: '"v=spf1 include:_spf.google.com include:servers.mcsv.net ~all"   # one record, every sender listed once'
+  verify: dig +short TXT {{zone}} | grep -c spf1   # expect 1
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7208#section-3.2
+
+email.fix_spf_syntax:
+  title: Fix the SPF record syntax for {{zone}}
+  category: email
+  effort: 1
+  why: >-
+    Receiving mail servers can't read your SPF record, so they treat it as broken. Your
+    real email may land in spam and spoofed email isn't blocked.
+  steps:
+    - Have your tech helper check the record against the problems listed in the evidence and rewrite it.
+    - Remove any "ptr" mechanism; it's deprecated and many receivers ignore it.
+  technical:
+    - platform: Valid shape
+      snippet: '"v=spf1 [include:<provider> ...] [ip4:<address> ...] ~all"'
+  verify: dig +short TXT {{zone}} | grep spf1
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7208#section-5.5
+
+email.fix_spf_all:
+  title: Make the SPF record for {{zone}} reject unknown senders
+  category: email
+  effort: 1
+  why: >-
+    Your SPF record ends in "{{all_qualifier}}", so receiving servers aren't told to
+    distrust email from senders you haven't listed. "+all" is the worst case: it approves
+    anyone, anywhere, which is worse than having no record because it makes forged email
+    look legitimate.
+  steps:
+    - Change the ending of the SPF TXT record to "~all" (or "-all" once you're sure every sender is listed).
+    - Run a new CivicShield scan to confirm.
+  technical:
+    - platform: Change
+      snippet: '"v=spf1 include:... +all"  →  "v=spf1 include:... ~all"'
+  verify: dig +short TXT {{zone}} | grep spf1
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7208#section-5.1
+
+email.flatten_spf:
+  title: Reduce the DNS lookups in the SPF record for {{zone}}
+  category: email
+  effort: 2
+  why: >-
+    SPF allows at most {{limit}} DNS lookups and yours needs {{lookups}}. Past the
+    limit, receivers treat SPF as failed, so some of your real email is likely going to
+    spam already. This usually happens gradually as new tools get added.
+  steps:
+    - List which included services you still use and remove the ones you don't.
+    - Some services (many newsletter tools) don't need to be in SPF at all because they send from their own domain. Check their docs.
+    - As a last resort, replace an include with the provider's published IP ranges ("flattening"), and know that you'll need to update it when they change.
+  technical:
+    - platform: Count lookups
+      snippet: Each include, a, mx, ptr, exists and redirect costs one lookup, including those nested inside includes. Limit is 10 (RFC 7208 §4.6.4).
+  verify: Run a new CivicShield scan; it evaluates the whole include tree and counts.
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7208#section-4.6.4
+
+email.fix_spf_includes:
+  title: Remove broken includes from the SPF record for {{zone}}
+  category: email
+  effort: 1
+  why: >-
+    Your SPF record points at a service whose SPF can't be found. That counts against
+    the lookup limit and can break SPF entirely. It's usually a service you stopped
+    using or a typo.
+  steps:
+    - Check the "include:" entries against the services you actually use and remove or correct the broken one.
+  technical:
+    - platform: Check one include
+      snippet: dig +short TXT {{include}}
+  verify: dig +short TXT {{zone}} | grep spf1
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7208#section-4.6.4
+
+email.add_dmarc:
+  title: Publish a DMARC record for {{zone}}
+  category: email
+  effort: 1
+  why: >-
+    DMARC tells receiving mail servers what to do with email that fails SPF and DKIM, and
+    sends you reports about who is sending as your domain. It's the step that actually
+    stops spoofing. Start in monitor mode so nothing breaks.
+  steps:
+    - Add the TXT record below. It starts in monitor mode (p=none), so nothing changes for your real email.
+    - Use a mailbox you'll check, or a free DMARC report service, for the reports.
+    - After 2–4 weeks of reports, CivicShield will suggest moving to enforcement.
+  technical:
+    - platform: DNS record
+      snippet: '_dmarc.{{zone}}  TXT  "v=DMARC1; p=none; rua=mailto:dmarc-reports@{{zone}}"'
+  verify: dig +short TXT _dmarc.{{zone}}
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7489
+    - https://support.google.com/a/answer/2466580
+
+email.fix_dmarc:
+  title: Fix the DMARC record for {{zone}}
+  category: email
+  effort: 1
+  why: >-
+    The DMARC record exists but receiving servers can't use it (it's malformed, or
+    there's more than one). They ignore it completely, so it isn't protecting you.
+  steps:
+    - Make sure there's exactly one TXT record at _dmarc.{{zone}} and that it starts with "v=DMARC1;".
+  technical:
+    - platform: Valid record
+      snippet: '_dmarc.{{zone}}  TXT  "v=DMARC1; p=none; rua=mailto:dmarc-reports@{{zone}}"'
+  verify: dig +short TXT _dmarc.{{zone}}
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7489#section-6.3
+
+email.enforce_dmarc:
+  title: Move DMARC for {{zone}} to enforcement
+  category: email
+  effort: 1
+  # Enforcing before every legitimate sender passes SPF or DKIM sends the org's own
+  # newsletters and receipts to spam. Blocking on these keeps the rollout staged.
+  requires:
+    - email.add_spf
+    - email.merge_spf
+    - email.fix_spf_syntax
+    - email.flatten_spf
+    - email.fix_spf_includes
+    - email.enable_dkim
+    - email.add_dmarc_reporting
+  why: >-
+    Your DMARC policy is "{{policy}}". Receiving servers still deliver email that fails
+    the checks, so a scammer can still send mail as @{{zone}}. Moving to enforcement is
+    what actually blocks them.
+  steps:
+    - Check your DMARC reports. Every service you use to send email should be passing.
+    - Step 1. Change p=none to p=quarantine (failing mail goes to spam). Wait 2–4 weeks and watch the reports.
+    - Step 2. Change to p=reject (failing mail is refused).
+    - If you have subdomains that never send mail, also set sp=reject.
+  technical:
+    - platform: Step 1
+      snippet: '_dmarc.{{zone}}  TXT  "v=DMARC1; p=quarantine; rua=mailto:dmarc-reports@{{zone}}"'
+    - platform: Step 2
+      snippet: '_dmarc.{{zone}}  TXT  "v=DMARC1; p=reject; rua=mailto:dmarc-reports@{{zone}}"'
+  verify: dig +short TXT _dmarc.{{zone}}
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7489#section-6.3
+    - https://support.google.com/a/answer/10032473
+
+email.add_dmarc_reporting:
+  title: Turn on DMARC reports for {{zone}}
+  category: email
+  effort: 1
+  why: >-
+    Your DMARC record doesn't ask for reports, so you can't see who's sending email as
+    your domain, whether that's a scammer or your own newsletter tool that isn't set up
+    right. You need the reports before you can safely enforce DMARC.
+  steps:
+    - Add "rua=mailto:<a mailbox you check>" to the DMARC record. A free DMARC report service turns the reports into a readable summary.
+  technical:
+    - platform: DNS record
+      snippet: '_dmarc.{{zone}}  TXT  "v=DMARC1; p={{policy}}; rua=mailto:dmarc-reports@{{zone}}"'
+  verify: dig +short TXT _dmarc.{{zone}} | grep rua=
+  references:
+    - https://www.rfc-editor.org/rfc/rfc7489#section-7.2
+
+email.enable_dkim:
+  title: Turn on DKIM signing for {{zone}}
+  category: email
+  effort: 1
+  why: >-
+    DKIM puts a tamper-proof signature on your outgoing email. It's needed for DMARC
+    enforcement to work reliably, especially for forwarded mail. CivicShield couldn't find
+    a DKIM key, but key names vary. If you already set it up, mark this as not a real
+    issue.
+  steps:
+    - Turn on DKIM in your email provider's admin console (paths below). It gives you DNS records to add.
+    - Add those records at your DNS provider, then click "Start authentication" (or similar) back in the admin console.
+    - Do the same for each newsletter or donation tool that sends as your domain.
+  technical:
+    - platform: Google Workspace
+      snippet: Admin console → Apps → Google Workspace → Gmail → Authenticate email → Generate new record (2048-bit) → add the TXT at google._domainkey.{{zone}} → Start authentication
+    - platform: Microsoft 365
+      snippet: Microsoft Defender portal → Email & collaboration → Policies → Email authentication settings → DKIM → {{zone}} → add the two CNAMEs (selector1/selector2._domainkey) → Enable
+  verify: dig +short TXT google._domainkey.{{zone}}   # or selector1._domainkey for Microsoft 365
+  references:
+    - https://www.rfc-editor.org/rfc/rfc6376
+    - https://support.google.com/a/answer/174124
+
+email.rotate_dkim_key:
+  title: Replace the weak DKIM key on {{zone}}
+  category: email
+  effort: 2
+  why: >-
+    The DKIM key "{{selector}}" is only {{key_bits}} bits. Keys this short can be broken,
+    which would let someone sign forged email as your domain.
+  steps:
+    - Generate a new 2048-bit DKIM key in your email provider's admin console. It'll usually use a new selector name.
+    - Publish it, switch signing to the new key, then remove the old selector's DNS record.
+  technical:
+    - platform: Google Workspace
+      snippet: Admin console → Apps → Google Workspace → Gmail → Authenticate email → Generate new record → DKIM key bit length 2048
+  verify: dig +short TXT {{selector}}._domainkey.{{zone}}
+  references:
+    - https://www.rfc-editor.org/rfc/rfc8301
