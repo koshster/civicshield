@@ -9,10 +9,14 @@
 
 **False negatives:** none
 
-**Scan status:** completed in 17s
+**Scan status:** completed in 16s
 
 **Check runs:** {"ok": 50}
 
 **Requests reaching out-of-scope outside.notours.test:** 0
 
 **Audit chain intact:** True
+
+**Fix → rescan:** `email.dmarc.policy_none` on dmarc-none.lab.civicshield.test marked fixed; score 6 (F) → 7 (F), residual risk 579.5 → 543.5; other open issues unchanged: True
+
+**Weekly plan after the first scan:** Renew the HTTPS certificate for expired-cert.lab.civicshield.test (Fix now: it's already affecting visitors.); Make the SPF record for spf-pass-all.lab.civicshield.test reject unknown senders (High value for the time it takes.); Install a valid, trusted certificate for self-signed.lab.civicshield.test (High value for the time it takes.)

@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from lab.cases import DNS_IP, OUTSIDE_HOST, PARENT, TARGETS, ZONES
+from lab.cases import DNS_IP, OUTSIDE_HOST, PARENT, TARGETS, ZONES, Zone
 
 VERIFICATION_LABEL = "_civicshield-verification"  # mirrors authz.verification.DNS_LABEL
 
@@ -34,9 +34,9 @@ def _txt(value: str) -> str:
     return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
-def lab_zone(verification: dict[str, str], serial: int) -> str:
+def lab_zone(verification: dict[str, str], serial: int, zones: tuple[Zone, ...] = ZONES) -> str:
     lines = _soa(PARENT, serial)
-    for zone in ZONES:
+    for zone in zones:
         rel = zone.name.removesuffix(f".{PARENT}")
         ip = TARGETS[zone.target].ip
         lines += [f"{rel} IN A {ip}", f"www.{rel} IN A {ip}"]
@@ -55,10 +55,14 @@ def outside_zone(serial: int) -> str:
     return "\n".join([*_soa(origin, serial), f"{label} IN A {TARGETS['outside'].ip}"]) + "\n"
 
 
-def render_zones(out_dir: Path, verification: dict[str, str] | None = None) -> None:
+def render_zones(
+    out_dir: Path, verification: dict[str, str] | None = None, zones: tuple[Zone, ...] = ZONES
+) -> None:
+    """Write the zone files. ``zones`` lets the harness "fix" a case mid-run, exactly
+    as an org would by editing a record at their DNS provider."""
     out_dir.mkdir(parents=True, exist_ok=True)
     serial = int(time.time())
-    (out_dir / f"db.{PARENT}").write_text(lab_zone(verification or {}, serial))
+    (out_dir / f"db.{PARENT}").write_text(lab_zone(verification or {}, serial, zones))
     (out_dir / f"db.{OUTSIDE_HOST.split('.', 1)[1]}").write_text(outside_zone(serial))
 
 
