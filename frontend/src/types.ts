@@ -106,3 +106,78 @@ export interface Reference {
 export interface IssueDetail extends Issue {
   observations: { scan_id: string; created_at: string; evidence: Evidence[]; references: Reference[] }[];
 }
+
+// --- Prioritization & remediation (api/routes/overview.py, remediation/) ---------------
+export type Category = "tls" | "headers" | "email";
+export const CATEGORY_LABEL: Record<Category, string> = {
+  tls: "HTTPS & certificates",
+  headers: "Website protections",
+  email: "Email spoofing",
+};
+
+export interface Factor {
+  symbol: string;
+  name: string;
+  value: number;
+  explanation: string;
+}
+export interface Risk {
+  score: number;
+  factors: Factor[];
+}
+export interface Remediation {
+  key: string;
+  title: string;
+  category: Category;
+  effort: number;
+  effort_minutes: number;
+  why: string;
+  steps: string[];
+  technical: { platform: string; snippet: string }[];
+  verify: string;
+  references: string[];
+}
+export interface IssueWithGuidance extends IssueDetail {
+  risk: Risk;
+  remediation: Remediation;
+}
+export interface ActionIssue {
+  id: string;
+  title: string;
+  asset: string;
+  severity: Severity;
+  confidence: 1 | 2 | 3;
+  risk: number;
+}
+export interface Action {
+  key: string;
+  title: string;
+  category: Category;
+  zone: string;
+  effort: number;
+  effort_minutes: number;
+  risk_reduction: number;
+  priority: number;
+  effective_priority: number;
+  fix_now: boolean;
+  plannable: boolean;
+  blocked_by: string[];
+  unblocks: string[];
+  why: string[];
+  issues: ActionIssue[];
+}
+export interface ScoreValue {
+  score: number;
+  grade: string;
+  residual_risk: number;
+}
+export interface Overview {
+  score: ScoreValue | null;
+  categories: Partial<Record<Category, ScoreValue>>;
+  plan: { action: Action; reason: string }[];
+  actions: Action[];
+  budget_minutes: number;
+  issue_counts: Partial<Record<Issue["status"], number>>;
+  last_scan: Scan | null;
+  last_completed_scan_at: string | null;
+}

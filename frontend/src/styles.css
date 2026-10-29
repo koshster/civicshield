@@ -63,3 +63,26 @@ pre.legal, pre.evidence { white-space: pre-wrap; background: #f8fafc; border: 1p
 .login { display: grid; place-items: center; min-height: 100vh; padding: 16px; }
 .login form { width: min(380px, 100%); }
 .login button { width: 100%; margin-top: 8px; }
+
+/* Overview: score, weekly plan, "why this rank" */
+.small { font-size: 0.875rem; }
+.score-row { display: flex; gap: 24px; align-items: center; flex-wrap: wrap; }
+.score { display: flex; align-items: baseline; gap: 8px; padding: 8px 16px; border-radius: 10px; background: var(--bg); }
+.score-num { font-size: 2.6rem; font-weight: 700; line-height: 1; }
+.score-grade { font-size: 1.4rem; font-weight: 700; }
+.grade-A .score-grade, .grade-B .score-grade { color: #067647; }
+.grade-C .score-grade, .grade-D .score-grade { color: #b54708; }
+.grade-F .score-grade { color: var(--danger); }
+.score-cats { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 240px; }
+.score-cats li { display: grid; grid-template-columns: 1fr 120px 2.5em; gap: 10px; align-items: center; }
+.score-cats meter { width: 100%; }
+.plan { padding-left: 1.2rem; margin: 0; }
+.plan li { margin: 0 0 12px; }
+.plan li.fix-now::marker { color: var(--danger); }
+.plan-head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-weight: 600; }
+.plan p { margin: 2px 0; }
+details.why { margin: 4px 0; }
+details.why summary { cursor: pointer; color: var(--muted); font-size: 0.875rem; }
+details.why ul { margin: 4px 0; padding-left: 1.2rem; font-size: 0.875rem; }
+.snippet { margin: 8px 0; }
+.copy code { white-space: pre-wrap; word-break: break-word; }

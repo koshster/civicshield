@@ -1,13 +1,32 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../api";
-import { Card, ErrorBox, SeverityBadge, StatusPill } from "../components";
+import { Card, CopyValue, ErrorBox, SeverityBadge, StatusPill } from "../components";
 import { fmtDate, useFetch } from "../hooks";
-import { CONFIDENCE_LABEL, type IssueDetail } from "../types";
+import { CONFIDENCE_LABEL, type IssueWithGuidance, type Remediation } from "../types";
+import { fmtMinutes } from "./OverviewTab";
+
+/** Plain-text email for the volunteer or vendor who'll make the change. */
+function helperEmail(r: Remediation, asset: string): string {
+  const lines = [
+    `Hi, could you help us with this? ${r.title}.`,
+    "",
+    r.why,
+    "",
+    "What needs doing:",
+    ...r.steps.map((s, i) => `${i + 1}. ${s}`),
+    "",
+    ...r.technical.flatMap((t) => [`${t.platform}:`, t.snippet, ""]),
+  ];
+  if (r.verify) lines.push(`To check it worked: ${r.verify}`, "");
+  if (r.references.length) lines.push("References:", ...r.references, "");
+  lines.push(`(Found by CivicShield on ${asset}. Estimated effort: about ${fmtMinutes(r.effort_minutes)}.)`);
+  return lines.join("\n");
+}
 
 export default function IssuePage() {
   const { orgId, issueId } = useParams();
-  const [issue, error, reload] = useFetch<IssueDetail>(`/orgs/${orgId}/issues/${issueId}`);
+  const [issue, error, reload] = useFetch<IssueWithGuidance>(`/orgs/${orgId}/issues/${issueId}`);
   const [reason, setReason] = useState("");
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -21,8 +40,14 @@ export default function IssuePage() {
     }
   };
 
+  const [copied, setCopied] = useState(false);
   if (!issue) return <ErrorBox error={error} />;
   const latest = issue.observations[0];
+  const r = issue.remediation;
+  const copyEmail = async () => {
+    await navigator.clipboard.writeText(helperEmail(r, issue.asset));
+    setCopied(true);
+  };
 
   return (
     <>
@@ -41,10 +66,67 @@ export default function IssuePage() {
           <strong>Where:</strong> {issue.asset} · <strong>Confidence:</strong> {CONFIDENCE_LABEL[issue.confidence]} ·{" "}
           <strong>First seen:</strong> {fmtDate(issue.first_seen_at)}
         </p>
-        <p className="muted">
-          Plain-English fix guidance (remediation key <code>{issue.remediation_key}</code>) arrives with the remediation
-          library in the next milestone.
-        </p>
+      </Card>
+
+      <Card
+        title={`How to fix it: ${r.title}`}
+        actions={
+          <button className="secondary" onClick={() => void copyEmail()}>
+            {copied ? "Copied ✓" : "Copy as email for your tech helper"}
+          </button>
+        }
+      >
+        <p>{r.why}</p>
+        <p className="muted small">Estimated effort: about {fmtMinutes(r.effort_minutes)}.</p>
+        <ol>
+          {r.steps.map((s) => (
+            <li key={s}>{s}</li>
+          ))}
+        </ol>
+        {r.technical.length > 0 && (
+          <details className="why" open>
+            <summary>For your tech helper</summary>
+            {r.technical.map((t) => (
+              <div key={t.platform + t.snippet} className="snippet">
+                <strong>{t.platform}</strong>
+                <CopyValue value={t.snippet} />
+              </div>
+            ))}
+            {r.verify && (
+              <p>
+                <strong>Check it worked:</strong> <code>{r.verify}</code>
+              </p>
+            )}
+            {r.references.length > 0 && (
+              <ul className="refs">
+                {r.references.map((u) => (
+                  <li key={u}>
+                    <a href={u} target="_blank" rel="noopener noreferrer">
+                      {u}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </details>
+        )}
+      </Card>
+
+      <Card title={`Why this rank? Risk ${issue.risk.score.toFixed(0)}/100`}>
+        <p className="muted small">Risk = 100 × S × E × X × C × U. A factor near zero pulls the whole score down.</p>
+        <table>
+          <tbody>
+            {issue.risk.factors.map((f) => (
+              <tr key={f.symbol}>
+                <td>
+                  <strong>{f.symbol}</strong> {f.name}
+                </td>
+                <td>{f.value.toFixed(2)}</td>
+                <td className="muted">{f.explanation}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </Card>
 
       {latest && (
