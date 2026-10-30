@@ -59,6 +59,10 @@ services:
     <<: *target
     volumes: [./ca/out:/certs:ro, ./targets/snippets:/etc/nginx/snippets:ro, ./targets/outside.conf:/etc/nginx/conf.d/default.conf:ro, ./logs:/var/log/lab]
     networks: { labnet: { ipv4_address: 172.30.0.26 } }
+  apex-redirect:
+    <<: *target
+    volumes: [./ca/out:/certs:ro, ./targets/snippets:/etc/nginx/snippets:ro, ./targets/apex-redirect.conf:/etc/nginx/conf.d/default.conf:ro]
+    networks: { labnet: { ipv4_address: 172.30.0.27 } }
 
   postgres:
     image: postgres:16-alpine
@@ -87,6 +91,7 @@ services:
       self-signed: { condition: service_started }
       redirector: { condition: service_started }
       outside: { condition: service_started }
+      apex-redirect: { condition: service_started }
     environment:
       CIVICSHIELD_ENV: lab
       CIVICSHIELD_SECRET_KEY: lab-only-not-a-secret-0123456789abcdef

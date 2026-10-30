@@ -10,6 +10,7 @@ def test_score_counts_tp_fp_fn_per_category() -> None:
     truth = [
         ZoneTruth("a.test", hosts=("tls.cert.expired",)),
         ZoneTruth("b.test", zone_types=("email.spf.missing",)),
+        ZoneTruth("w.test", www_types=("headers.csp.missing",)),
         ZoneTruth("clean.test"),
         ZoneTruth("skip.test", hosts=("tls.x",), score=False),
     ]
@@ -18,14 +19,19 @@ def test_score_counts_tp_fp_fn_per_category() -> None:
         ("tls.cert.expired", "WWW.a.test"),  # case-insensitive asset
         ("email.spf.missing", "b.test"),
         ("headers.hsts.missing", "clean.test"),  # noise on the control → FP
+        ("headers.csp.missing", "www.w.test"),
+        ("headers.csp.missing", "w.test"),  # www-only type reported on the apex → FP
         ("headers.hsts.missing", "skip.test"),  # unscored zone → ignored
         ("headers.hsts.missing", "unrelated.test"),  # not a lab asset → ignored
     ]
     r = score(truth, found)
-    assert (r.overall.tp, r.overall.fp, r.overall.fn) == (3, 1, 0)
-    assert r.by_category["headers"].precision == 0.0
+    assert (r.overall.tp, r.overall.fp, r.overall.fn) == (4, 2, 0)
+    assert r.by_category["headers"].precision == 1 / 3
     assert r.by_category["tls"].recall == 1.0
-    assert r.false_positives == [("headers.hsts.missing", "clean.test")]
+    assert sorted(r.false_positives) == [
+        ("headers.csp.missing", "w.test"),
+        ("headers.hsts.missing", "clean.test"),
+    ]
 
 
 def test_missing_finding_is_false_negative() -> None:
@@ -43,4 +49,4 @@ def test_ground_truth_matches_lab_cases_and_real_finding_types() -> None:
     truth = load_ground_truth(ROOT / "lab" / "ground_truth.yaml")
     assert {t.zone for t in truth} == {z.name for z in ZONES}
     for t in truth:
-        assert set(t.hosts) | set(t.zone_types) <= known, t.zone
+        assert set(t.hosts) | set(t.www_types) | set(t.zone_types) <= known, t.zone

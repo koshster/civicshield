@@ -32,6 +32,7 @@ TARGETS = {
         Target("self-signed", "172.30.0.24"),
         Target("redirector", "172.30.0.25"),
         Target("outside", "172.30.0.26"),
+        Target("apex-redirect", "172.30.0.27"),
     )
 }
 
@@ -72,6 +73,7 @@ ZONES = (
     Zone("weak-tls", "weak-tls"),
     Zone("expired-cert", "expired-cert"),
     Zone("self-signed", "self-signed"),
+    Zone("apex-redirect", "apex-redirect"),
     # Email cases: web side served by the hardened target.
     Zone("spf-missing", "hardened", spf=None),
     Zone("spf-pass-all", "hardened", spf="v=spf1 +all"),

@@ -2,6 +2,7 @@
 # here is a false positive; anything listed that it misses is a false negative.
 #
 #   hosts: finding types expected on BOTH the apex and www hosts (web checks)
+#   www:   finding types expected on the www host only (the apex redirects to it)
 #   zone:  finding types expected on the zone itself (email checks)
 #   score: false → the zone exists to test something else (scope), not detection
 #
@@ -53,6 +54,14 @@ dmarc-missing.lab.civicshield.test:
 dmarc-none.lab.civicshield.test:
   zone:
     - email.dmarc.policy_none
+
+apex-redirect.lab.civicshield.test:  # apex 308 → www; the page lives on www only
+  www:
+    - headers.csp.missing
+    - headers.clickjacking.missing
+    - headers.xcto.missing
+    - headers.referrer_policy.missing
+    - headers.permissions_policy.missing
 
 redirector.lab.civicshield.test:
   score: false

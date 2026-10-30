@@ -41,6 +41,7 @@ calling `execute_scan` directly.
 | `weak-tls` | weak-tls | TLS 1.0 and 1.1 enabled |
 | `expired-cert` | expired-cert | certificate expired 30 days ago |
 | `self-signed` | self-signed | self-signed certificate |
+| `apex-redirect` | apex-redirect | apex 308s to `www`, which lacks page headers: those findings must appear on `www` only |
 | `spf-missing`, `spf-pass-all`, `dmarc-missing`, `dmarc-none` | hardened | one email misconfiguration each |
 | `redirector` | redirector | redirects to `outside.notours.test`, which is never authorized: must get 0 requests |
 

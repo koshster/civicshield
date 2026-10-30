@@ -28,6 +28,7 @@ Key = tuple[str, str]  # (finding_type, asset)
 class ZoneTruth:
     zone: str
     hosts: tuple[str, ...] = ()
+    www_types: tuple[str, ...] = ()
     zone_types: tuple[str, ...] = ()
     score: bool = True
 
@@ -37,6 +38,7 @@ class ZoneTruth:
 
     def expected(self) -> set[Key]:
         keys = {(t, h) for t in self.hosts for h in self.assets}
+        keys |= {(t, f"www.{self.zone}") for t in self.www_types}
         return keys | {(t, self.zone) for t in self.zone_types}
 
 
@@ -46,6 +48,7 @@ def load_ground_truth(path: Path) -> list[ZoneTruth]:
         ZoneTruth(
             zone=zone,
             hosts=tuple((spec or {}).get("hosts") or ()),
+            www_types=tuple((spec or {}).get("www") or ()),
             zone_types=tuple((spec or {}).get("zone") or ()),
             score=bool((spec or {}).get("score", True)),
         )
