@@ -38,6 +38,7 @@ class ScriptedCheck:
 
     def __init__(self) -> None:
         self.emit: set[str] | str = set()
+        self.rkey = "r"
         self.targets: list[str] = []
 
     async def run(self, target: Target, ctx: CheckContext) -> list[Finding]:
@@ -53,7 +54,7 @@ class ScriptedCheck:
                 severity=Severity.HIGH,
                 confidence=Confidence.HIGH,
                 asset=target.name,
-                remediation_key="r",
+                remediation_key=self.rkey,
             )
             for t in sorted(self.emit)
         ]
@@ -99,6 +100,25 @@ async def test_lifecycle_new_resolved_regressed(
     assert b.status is IssueStatus.OPEN and b.regressed_count == 1
     scan = (await db.execute(select(Scan).order_by(Scan.created_at.desc()))).scalars().first()
     assert scan is not None and scan.stats["regressed"] == 1
+
+
+async def test_redetection_refreshes_fix_advice(
+    org_ready: dict[str, Any],
+    queued: list[uuid.UUID],
+    dns: FakeResolver,
+    sessionmaker: async_sessionmaker[AsyncSession],
+    db: AsyncSession,
+) -> None:
+    # A check upgrade that changes its advice must reach issues it already reported,
+    # or users keep following the old (here: contradictory) fix forever.
+    check = ScriptedCheck()
+    check.emit = {"fake.a"}
+    await _scan(org_ready, queued, check, sessionmaker, dns)
+    check.rkey = "r2"
+    await _scan(org_ready, queued, check, sessionmaker, dns)
+    db.expire_all()
+    a = (await db.execute(select(Issue))).scalar_one()
+    assert a.remediation_key == "r2" and a.status is IssueStatus.OPEN
 
 
 async def test_check_error_never_marks_issues_fixed(

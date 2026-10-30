@@ -173,8 +173,10 @@ async def persist_outcomes(
                     issue.resolved_at = None
                     issue.regressed_count += 1
                     regressed.append(issue.id)
-                # Refresh volatile fields (title "expires in 12 days", severity ramps up).
+                # Refresh volatile fields (title "expires in 12 days", severity ramps up),
+                # and the fix advice, which a newer check version may have improved.
                 issue.title, issue.severity, issue.confidence = f.title, f.severity, f.confidence
+                issue.remediation_key = f.remediation_key
                 issue.facts = f.facts
                 issue.last_seen_at = now
             db.add(
