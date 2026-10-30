@@ -59,7 +59,7 @@ class EmailObservation:
 class EmailSecurityCheck:
     meta: ClassVar[CheckMeta] = CheckMeta(
         id="email",
-        version="1.0.0",
+        version="1.1.0",
         name="Email spoofing protection (SPF, DKIM, DMARC)",
         category=Category.EMAIL,
         impact=Impact.PASSIVE,
@@ -133,6 +133,12 @@ def analyze(obs: EmailObservation) -> list[Finding]:
     out: list[Finding] = []
     d = obs.domain
     receives_mail = bool(obs.mx_hosts)
+    # A domain "sends mail" if it receives mail or its SPF authorizes any sender at all
+    # ("v=spf1 -all" alone means "this domain never sends", so DKIM isn't expected).
+    spf_authorizes_senders = len(obs.spf_records) == 1 and any(
+        t.mechanism != "all" for t in parse_spf(obs.spf_records[0]).terms
+    )
+    sends_mail = receives_mail or spf_authorizes_senders
     base_facts: Facts = {"has_mx": receives_mail, "email_providers": obs.providers}
 
     def add(
@@ -289,7 +295,10 @@ def analyze(obs: EmailObservation) -> list[Finding]:
             "email.dmarc.missing",
             "No DMARC policy: others can send email as this domain",
             Severity.HIGH,
-            "email.add_dmarc",
+            # A no-mail domain gets the same "lock it down" fix as its missing SPF, so the
+            # two findings group into one task. "Start DMARC at p=none and watch reports"
+            # would contradict it, and there's no legitimate mail to protect.
+            "email.add_dmarc" if sends_mail else "email.lock_down_no_mail",
             dmarc_refs,
             dmarc_ev,
         )
@@ -363,12 +372,6 @@ def analyze(obs: EmailObservation) -> list[Finding]:
                 )
 
     # --- DKIM ---------------------------------------------------------------------------
-    # A domain "sends mail" if it receives mail or its SPF authorizes any sender at all
-    # ("v=spf1 -all" alone means "this domain never sends", so DKIM isn't expected).
-    spf_authorizes_senders = len(obs.spf_records) == 1 and any(
-        t.mechanism != "all" for t in parse_spf(obs.spf_records[0]).terms
-    )
-    sends_mail = receives_mail or spf_authorizes_senders
     live_keys = [k for k in obs.dkim_keys if not k.revoked]
     if sends_mail and not live_keys:
         add(

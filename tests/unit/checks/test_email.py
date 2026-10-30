@@ -62,6 +62,15 @@ async def test_non_mail_domain_gets_lockdown_advice_and_no_dkim_finding() -> Non
     assert f["email.spf.missing"].remediation_key == "email.lock_down_no_mail"
     assert f["email.spf.missing"].severity is Severity.MEDIUM
     assert "email.dkim.not_found" not in f
+    # One coherent task: DMARC must not say "start at p=none" while SPF says lock down.
+    assert f["email.dmarc.missing"].remediation_key == "email.lock_down_no_mail"
+
+
+async def test_dmarc_missing_on_a_sending_domain_gets_normal_dmarc_advice() -> None:
+    f = await run({(D, "TXT"): ["v=spf1 include:_spf.google.com -all"]})
+    assert f["email.dmarc.missing"].remediation_key == "email.add_dmarc"
+    f = await run({(D, "MX"): ["10 mail.example.org"]})
+    assert f["email.dmarc.missing"].remediation_key == "email.add_dmarc"
 
 
 async def test_spf_all_qualifiers() -> None:
