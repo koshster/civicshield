@@ -8,9 +8,12 @@ pay off sooner.
 
 from __future__ import annotations
 
+import dataclasses
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from typing import ClassVar
+from urllib.parse import urlsplit
 
 from civicshield.engine.checks.base import (
     CheckContext,
@@ -34,6 +37,11 @@ _SESSIONISH = re.compile(
 )
 
 MDN = "https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/"
+# Headers about the HTTP response itself, judged on whatever this host sent, even a
+# bare redirect. Everything else is about the rendered page.
+RESPONSE_LEVEL = frozenset(
+    {"strict-transport-security", "set-cookie", "server", "x-powered-by", "x-aspnet-version"}
+)
 
 
 @dataclass(frozen=True)
@@ -45,6 +53,12 @@ class HeadersObservation:
     tls_verified: bool = True
     redirect_blocked_to: str | None = None
     notes: tuple[str, ...] = field(default_factory=tuple)
+    # Set when this host only redirects to its apex/www sibling, which serves the page.
+    # ``own_*`` is then the response this host itself sent (the redirect).
+    page_on_sibling: str | None = None
+    own_url: str | None = None
+    own_status: int | None = None
+    own_headers: tuple[tuple[str, str], ...] | None = None
 
     def get(self, name: str) -> str | None:
         return next((v for k, v in self.headers if k == name), None)
@@ -52,16 +66,57 @@ class HeadersObservation:
     def get_all(self, name: str) -> list[str]:
         return [v for k, v in self.headers if k == name]
 
+    def _own(self) -> tuple[tuple[str, str], ...]:
+        # `is None`, not `or`: a bare redirect with no headers must not borrow the
+        # sibling's HSTS.
+        return self.headers if self.own_headers is None else self.own_headers
 
-def _observation(result: FetchResult, *, https: bool, verified: bool) -> HeadersObservation:
-    return HeadersObservation(
+    def own_get(self, name: str) -> str | None:
+        return next((v for k, v in self._own() if k == name), None)
+
+    def own_get_all(self, name: str) -> list[str]:
+        return [v for k, v in self._own() if k == name]
+
+
+def _hdrs(items: Iterable[tuple[str, str]]) -> tuple[tuple[str, str], ...]:
+    return tuple((k.lower(), v) for k, v in items)
+
+
+def siblings(host: str) -> set[str]:
+    """The apex/www partner of a host. In zone scope the runner always plans both as
+    targets (runner.plan_targets), and in host-only scope a redirect to the partner is
+    out of scope and never followed, so a followed redirect to a sibling always lands
+    on a host that gets its own headers check."""
+    return {f"www.{host}"} | ({host.removeprefix("www.")} if host.startswith("www.") else set())
+
+
+def _observation(
+    result: FetchResult, asset: str, *, https: bool, verified: bool
+) -> HeadersObservation:
+    obs = HeadersObservation(
         url=result.url,
         status=result.status,
-        headers=tuple((k.lower(), v) for k, v in result.headers.multi_items()),
+        headers=_hdrs(result.headers.multi_items()),
         https=https,
         tls_verified=verified,
         redirect_blocked_to=result.redirect_blocked_to,
     )
+    final_host = (urlsplit(result.url).hostname or "").lower()
+    if final_host in siblings(asset.lower()):
+        # e.g. example.org → 308 → www.example.org. The page (CSP, framing, …) belongs to
+        # www and is checked there. Judging it here too would report every page header
+        # twice, on a host that never serves a page. Real-world false positive from the
+        # first smoke test; covered by the lab's apex-redirect case.
+        own = [h for h in result.redirects if urlsplit(h.url).hostname == asset.lower()]
+        if own:
+            obs = dataclasses.replace(
+                obs,
+                page_on_sibling=final_host,
+                own_url=own[-1].url,
+                own_status=own[-1].status,
+                own_headers=_hdrs(own[-1].headers.multi_items()),
+            )
+    return obs
 
 
 def _parse_hsts(value: str) -> tuple[int | None, bool]:
@@ -101,7 +156,7 @@ def parse_set_cookie(header: str) -> ParsedCookie:
 class SecurityHeadersCheck:
     meta: ClassVar[CheckMeta] = CheckMeta(
         id="headers",
-        version="1.0.0",
+        version="1.1.0",
         name="Security headers & cookies",
         category=Category.HEADERS,
         impact=Impact.PASSIVE,
@@ -134,15 +189,15 @@ class SecurityHeadersCheck:
     async def gather(self, target: Target, ctx: CheckContext) -> HeadersObservation:
         try:
             r = await ctx.fetch(f"https://{target.name}/")
-            return _observation(r, https=True, verified=True)
+            return _observation(r, target.name, https=True, verified=True)
         except CertificateError:
             # The TLS check reports the certificate itself; here we still want the headers.
             r = await ctx.fetch(f"https://{target.name}/", verify_tls=False)
-            return _observation(r, https=True, verified=False)
+            return _observation(r, target.name, https=True, verified=False)
         except NetError:
             pass
         r = await ctx.fetch(f"http://{target.name}/")  # raises if neither works → check error
-        return _observation(r, https=False, verified=False)
+        return _observation(r, target.name, https=False, verified=False)
 
     async def run(self, target: Target, ctx: CheckContext) -> list[Finding]:
         return analyze(await self.gather(target, ctx), target.name)
@@ -153,13 +208,19 @@ def analyze(obs: HeadersObservation, asset: str) -> list[Finding]:
     # Headers on a redirect to another site describe the redirect, not the real page.
     conf = Confidence.MEDIUM if obs.redirect_blocked_to else Confidence.HIGH
 
-    def header_ev(name: str, value: str | None) -> list[Evidence]:
+    # Response-level properties (HSTS, cookies, Server) are judged on what *this* host
+    # sent; page-level ones (CSP, framing, …) on the page, unless that lives on a sibling.
+    own_url, own_status = obs.own_url or obs.url, obs.own_status or obs.status
+    page_here = obs.page_on_sibling is None
+
+    def header_ev(name: str, value: str | None, *, own: bool = False) -> list[Evidence]:
         summary = f"{name}: {value}" if value is not None else f"{name} header not present"
+        url, status = (own_url, own_status) if own else (obs.url, obs.status)
         return [
             Evidence(
                 kind="http_header",
                 summary=summary,
-                data={"url": obs.url, "status": obs.status, "header": name, "value": value},
+                data={"url": url, "status": status, "header": name, "value": value},
             )
         ]
 
@@ -185,7 +246,7 @@ def analyze(obs: HeadersObservation, asset: str) -> list[Finding]:
                 asset=asset,
                 remediation_key=rkey,
                 discriminator=disc,
-                evidence=header_ev(header, value),
+                evidence=header_ev(header, value, own=header in RESPONSE_LEVEL),
                 references=refs,
                 facts=facts or {},
             )
@@ -193,7 +254,7 @@ def analyze(obs: HeadersObservation, asset: str) -> list[Finding]:
 
     # --- HSTS (only meaningful over HTTPS) -------------------------------------------
     if obs.https:
-        hsts = obs.get("strict-transport-security")
+        hsts = obs.own_get("strict-transport-security")
         if hsts is None:
             add(
                 "headers.hsts.missing",
@@ -224,101 +285,102 @@ def analyze(obs: HeadersObservation, asset: str) -> list[Finding]:
                     },
                 )
 
-    # --- CSP -------------------------------------------------------------------------
-    csp = obs.get("content-security-policy")
-    if csp is None:
-        if obs.get("content-security-policy-report-only"):
-            add(
-                "headers.csp.report_only",
-                "CSP is in report-only mode (not enforced)",
-                Severity.INFO,
-                "headers.add_csp",
-                [cwe(693)],
-                "content-security-policy-report-only",
-                obs.get("content-security-policy-report-only"),
-            )
+    if page_here:
+        # --- CSP -------------------------------------------------------------------------
+        csp = obs.get("content-security-policy")
+        if csp is None:
+            if obs.get("content-security-policy-report-only"):
+                add(
+                    "headers.csp.report_only",
+                    "CSP is in report-only mode (not enforced)",
+                    Severity.INFO,
+                    "headers.add_csp",
+                    [cwe(693)],
+                    "content-security-policy-report-only",
+                    obs.get("content-security-policy-report-only"),
+                )
+            else:
+                add(
+                    "headers.csp.missing",
+                    "Content-Security-Policy header missing",
+                    Severity.LOW,
+                    "headers.add_csp",
+                    [cwe(693), cwe(79)],
+                    "content-security-policy",
+                )
         else:
+            for weak in analyze_csp(parse_csp(csp)):
+                add(
+                    f"headers.csp.{weak.kind}",
+                    f"Weak Content-Security-Policy: {weak.detail}",
+                    Severity.LOW,
+                    "headers.strengthen_csp",
+                    [cwe(693), cwe(79)],
+                    "content-security-policy",
+                    csp,
+                )
+
+        # --- Clickjacking: X-Frame-Options or CSP frame-ancestors ------------------------------
+        frame_ancestors = csp is not None and parse_csp(csp).sources("frame-ancestors") is not None
+        if obs.get("x-frame-options") is None and not frame_ancestors:
             add(
-                "headers.csp.missing",
-                "Content-Security-Policy header missing",
+                "headers.clickjacking.missing",
+                "No clickjacking protection",
                 Severity.LOW,
-                "headers.add_csp",
-                [cwe(693), cwe(79)],
-                "content-security-policy",
+                "headers.add_frame_protection",
+                [cwe(1021)],
+                "x-frame-options",
             )
-    else:
-        for weak in analyze_csp(parse_csp(csp)):
+
+        # --- X-Content-Type-Options --------------------------------------------------------
+        xcto = obs.get("x-content-type-options")
+        if xcto is None or xcto.strip().lower() != "nosniff":
             add(
-                f"headers.csp.{weak.kind}",
-                f"Weak Content-Security-Policy: {weak.detail}",
+                "headers.xcto.missing",
+                "X-Content-Type-Options: nosniff missing",
                 Severity.LOW,
-                "headers.strengthen_csp",
-                [cwe(693), cwe(79)],
-                "content-security-policy",
-                csp,
+                "headers.add_xcto",
+                [cwe(693)],
+                "x-content-type-options",
+                xcto,
             )
 
-    # --- Clickjacking: X-Frame-Options or CSP frame-ancestors ------------------------------
-    frame_ancestors = csp is not None and parse_csp(csp).sources("frame-ancestors") is not None
-    if obs.get("x-frame-options") is None and not frame_ancestors:
-        add(
-            "headers.clickjacking.missing",
-            "No clickjacking protection",
-            Severity.LOW,
-            "headers.add_frame_protection",
-            [cwe(1021)],
-            "x-frame-options",
-        )
+        # --- Referrer-Policy --------------------------------------------------------------
+        ref = obs.get("referrer-policy")
+        if ref is None:
+            add(
+                "headers.referrer_policy.missing",
+                "Referrer-Policy header missing",
+                Severity.INFO,
+                "headers.add_referrer_policy",
+                [cwe(200)],
+                "referrer-policy",
+            )
+        elif ref.strip().lower() in {"unsafe-url", "no-referrer-when-downgrade"}:
+            add(
+                "headers.referrer_policy.unsafe",
+                "Referrer-Policy leaks full URLs",
+                Severity.LOW,
+                "headers.add_referrer_policy",
+                [cwe(200)],
+                "referrer-policy",
+                ref,
+            )
 
-    # --- X-Content-Type-Options --------------------------------------------------------
-    xcto = obs.get("x-content-type-options")
-    if xcto is None or xcto.strip().lower() != "nosniff":
-        add(
-            "headers.xcto.missing",
-            "X-Content-Type-Options: nosniff missing",
-            Severity.LOW,
-            "headers.add_xcto",
-            [cwe(693)],
-            "x-content-type-options",
-            xcto,
-        )
-
-    # --- Referrer-Policy --------------------------------------------------------------
-    ref = obs.get("referrer-policy")
-    if ref is None:
-        add(
-            "headers.referrer_policy.missing",
-            "Referrer-Policy header missing",
-            Severity.INFO,
-            "headers.add_referrer_policy",
-            [cwe(200)],
-            "referrer-policy",
-        )
-    elif ref.strip().lower() in {"unsafe-url", "no-referrer-when-downgrade"}:
-        add(
-            "headers.referrer_policy.unsafe",
-            "Referrer-Policy leaks full URLs",
-            Severity.LOW,
-            "headers.add_referrer_policy",
-            [cwe(200)],
-            "referrer-policy",
-            ref,
-        )
-
-    # --- Permissions-Policy --------------------------------------------------------------
-    if obs.get("permissions-policy") is None:
-        add(
-            "headers.permissions_policy.missing",
-            "Permissions-Policy header missing",
-            Severity.INFO,
-            "headers.add_permissions_policy",
-            [cwe(693)],
-            "permissions-policy",
-        )
+        # --- Permissions-Policy --------------------------------------------------------------
+        if obs.get("permissions-policy") is None:
+            add(
+                "headers.permissions_policy.missing",
+                "Permissions-Policy header missing",
+                Severity.INFO,
+                "headers.add_permissions_policy",
+                [cwe(693)],
+                "permissions-policy",
+            )
 
     # --- Version disclosure (Server, X-Powered-By) ----------------------------------------
     for name in ("server", "x-powered-by", "x-aspnet-version"):
-        value = obs.get(name)
+        value = obs.own_get(name)
         if value and _VERSION_IN_HEADER.search(value):
             add(
                 "headers.version_disclosure",
@@ -333,7 +395,7 @@ def analyze(obs: HeadersObservation, asset: str) -> list[Finding]:
             )
 
     # --- Cookies ----------------------------------------------------------------------
-    for raw in obs.get_all("set-cookie"):
+    for raw in obs.own_get_all("set-cookie"):
         c = parse_set_cookie(raw)
         if not c.name:
             continue

@@ -46,11 +46,14 @@ async def test_request_goes_to_pinned_ip_with_original_host(client: ScopedHttpCl
 @respx.mock
 async def test_follows_in_scope_redirects_and_records_chain(client: ScopedHttpClient) -> None:
     respx.get(f"http://{IP}/").mock(
-        return_value=httpx.Response(301, headers={"Location": "https://www.example.org/"})
+        return_value=httpx.Response(
+            301, headers={"Location": "https://www.example.org/", "Set-Cookie": "a=1"}
+        )
     )
     respx.get(f"https://{IP}/").mock(return_value=httpx.Response(200))
     result = await client.fetch("http://example.org/")
     assert [(h.status, h.location) for h in result.redirects] == [(301, "https://www.example.org/")]
+    assert result.redirects[0].headers.get("set-cookie") == "a=1"
     assert result.url == "https://www.example.org/"
 
 

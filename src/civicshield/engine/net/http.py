@@ -27,6 +27,9 @@ class RedirectHop:
     url: str
     status: int
     location: str
+    # The redirecting response's own headers. A host that only redirects (apex → www)
+    # still sets HSTS and cookies on that response, and checks must judge it on those.
+    headers: httpx.Headers = field(default_factory=httpx.Headers)
 
 
 @dataclass(frozen=True)
@@ -131,7 +134,7 @@ class ScopedHttpClient:
             if not (follow_redirects and response.is_redirect and location):
                 break
             nxt = urljoin(current, location)
-            hops.append(RedirectHop(current, response.status_code, nxt))
+            hops.append(RedirectHop(current, response.status_code, nxt, response.headers))
             next_host = urlsplit(nxt).hostname or ""
             if not self.gateway.scope.contains(next_host):
                 # Redirecting off-site (e.g. to a donation platform) is normal; we record
